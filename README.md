@@ -26,8 +26,8 @@ Run a single script to bootstrap a production-ready Bun environment on Ubuntu.
 | Software    | Version     | License |
 | ---         | ---         | ---     |
 | [Bun][1]    | [1.3.x][2]  | [MIT][3] |
-| [Nginx][4]  | [1.17.x][5] | [Artistic License 2.0][6] |
-| [Certbot][7]    | [4.1.x][8]  | [Apache 2 on GitHub][9] |
+| [Nginx][4]  | [1.24.x][5] | [Artistic License 2.0][6] |
+| [Certbot][7]    | [5.1.x][8]  | [Apache 2 on GitHub][9] |
 
 ## Quick Start
 
@@ -97,3 +97,16 @@ sudo SKIP_SAMPLE_APP=1 bash install.sh
   [Install]
   WantedBy=multi-user.target
   ```
+
+[1]: https://bun.sh
+[2]: https://github.com/oven-sh/bun/releases
+[3]: https://github.com/oven-sh/bun/blob/main/LICENSE
+[4]: https://nginx.org
+[5]: https://packages.ubuntu.com/focal/nginx
+[6]: https://www.npmjs.com/policies/npm-license
+[7]: https://certbot.eff.org/pages/about
+[8]: https://github.com/certbot/certbot/releases
+[9]: https://github.com/certbot/certbot/blob/master/LICENSE.txt
+
+[21]: https://cloud.digitalocean.com/login
+[22]: https://letsencrypt.org
