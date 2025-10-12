@@ -31,9 +31,19 @@ Run a single script to bootstrap a production-ready Bun environment on Ubuntu.
 
 ## Quick Start
 
+Pipe the installer directly to bash (runs as root with sudo)
+
+> [!WARNING]
+> Piping remote scripts to a shell executes code from the network — review the script before running.
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-installer/main/install.sh -o install.sh
-sudo bash install.sh
+curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-installer/main/install.sh | sudo bash
+```
+
+To skip sample app:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-installer/main/install.sh | sudo bash -s -- SKIP_SAMPLE_APP=1
 ```
 
 Or after cloning this repository:
@@ -65,3 +75,25 @@ sudo SKIP_SAMPLE_APP=1 bash install.sh
 
 - The default Bun app runs from `/root/app` and executes `bun run start`.
 - Adjust to your app by replacing `/root/app` contents and updating the service ExecStart if needed.
+- If you skip the default app, you have to set up your own Bun application and service (unit file).
+  You may use the following example:
+  ```ini
+  [Unit]
+  Description=Bun App
+  After=network.target
+
+  [Service]
+  Type=simple
+  WorkingDirectory=/root/app
+  ExecStart=/root/.bun/bin/bun run start
+  Restart=always
+  RestartSec=3
+  User=root
+  Environment=NODE_ENV=production
+  StandardOutput=journal
+  StandardError=journal
+  SyslogIdentifier=bun-app
+
+  [Install]
+  WantedBy=multi-user.target
+  ```
