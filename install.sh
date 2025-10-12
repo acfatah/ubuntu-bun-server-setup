@@ -234,8 +234,8 @@ Restart=always
 RestartSec=3
 User=root
 Environment=NODE_ENV=production
-StandardOutput=syslog
-StandardError=syslog
+StandardOutput=journal
+StandardError=journal
 SyslogIdentifier=bun-app
 
 [Install]
