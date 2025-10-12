@@ -33,7 +33,7 @@ Run a single script to bootstrap a production-ready Bun environment on Ubuntu.
 
 Pipe the installer directly to bash (runs as root with sudo)
 
-> [!WARNING]
+> [!IMPORTANT]
 > Piping remote scripts to a shell executes code from the network — review the script before running.
 
 ```bash
