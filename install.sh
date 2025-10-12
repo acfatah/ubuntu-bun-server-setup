@@ -21,6 +21,9 @@ YELLOW="\033[1;33m"
 RED="\033[0;31m"
 NC="\033[0m"
 
+# Uniquely identifies this installation instance
+INSTANCE_ID=$(uuidgen)
+
 # Ensures the script is executed as root (UID 0).
 require_root() {
   if [[ $(id -u) -ne 0 ]]; then
@@ -316,6 +319,7 @@ Restart=always
 RestartSec=3
 User=root
 Environment=NODE_ENV=production
+Environment=INSTANCE_ID=${INSTANCE_ID}
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=bun-app
@@ -360,10 +364,8 @@ EOF
 }
 
 write_instance_id() {
-  local INSTANCE_ID
   local INSTANCE_LINE
 
-  INSTANCE_ID=$(uuidgen)
   INSTANCE_LINE="INSTANCE_ID=${INSTANCE_ID}"
   if ! sudo grep -Fxq "$INSTANCE_LINE" /etc/environment; then
       echo "$INSTANCE_LINE" | sudo tee -a /etc/environment > /dev/null
@@ -421,14 +423,30 @@ EOF
 # Prints a concise summary of installed components and next steps.
 # Includes Bun path/version, Nginx presence, bun-app service status, and Certbot hint.
 print_summary() {
-  echo -e "\n${GREEN}Installation complete.${NC}"
-  echo -e "- Bun: $(command -v bun || echo not found) ($(bun --version 2>/dev/null || echo unknown))"
-  echo -e "- Nginx: $(nginx -v 2>&1)"
+  local bun_path bun_ver nginx_ver service_line
+
+  bun_path=$(command -v bun || echo "not found")
+  bun_ver=$(bun --version 2>/dev/null || echo "unknown")
+  nginx_ver=$(nginx -v 2>&1 || echo "not found")
+
   if systemctl is-enabled bun-app >/dev/null 2>&1; then
-    echo -e "- Service 'bun-app' is enabled. View logs: journalctl -u bun-app -f"
+    service_line=" * Service 'bun-app' is enabled. View logs: journalctl -u bun-app -f"
+  else
+    service_line=""
   fi
-  echo "- Certbot installed. To obtain a certificate for an Nginx site:"
-  echo "  certbot --nginx"
+
+  cat <<EOF
+
+${GREEN}Installation complete.${NC}
+
+ * Instance ID: ${INSTANCE_ID}
+ * Bun: ${bun_path} (${bun_ver})
+ * Nginx: ${nginx_ver}
+${service_line}
+ * Certbot installed. To obtain a certificate for an Nginx site:
+   certbot --nginx
+
+EOF
 }
 
 main() {

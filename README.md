@@ -90,6 +90,7 @@ sudo SKIP_SAMPLE_APP=1 bash install.sh
   RestartSec=3
   User=root
   Environment=NODE_ENV=production
+  #Environment=INSTANCE_ID= # Get the value from /etc/environment
   StandardOutput=journal
   StandardError=journal
   SyslogIdentifier=bun-app
