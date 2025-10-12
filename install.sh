@@ -100,7 +100,7 @@ install_certbot() {
 # Installs Bun if not present and ensures it's on PATH via symlink.
 install_bun() {
   if command -v bun >/dev/null 2>&1; then
-    echo -e "${YELLOW}bun already installed: $(bun --version)${NC}"
+    echo -e "${YELLOW}Bun already installed: $(bun --version)${NC}"
     return
   fi
 
@@ -114,7 +114,7 @@ install_bun() {
     ln -s /root/.bun/bin/bun /usr/local/bin/bun
   fi
 
-  echo -e "${GREEN}bun installed: $(bun --version)${NC}"
+  echo -e "${GREEN}Bun version: v$(bun --version)${NC}"
 }
 
 # Creates a minimal Bun app under /root/app unless disabled.
@@ -375,34 +375,46 @@ write_instance_id() {
 # Side effects: writes executable file used at login.
 write_motd() {
   # Simple informative MOTD; does not expose passwords
-  local motd=/etc/update-motd.d/99-bun
+  local motd=/etc/update-motd.d/00-custom
   echo -e "${GREEN}Creating MOTD entry at ${motd}...${NC}"
 
-  # File: /etc/update-motd.d/99-bun
+  chmod -x /etc/update-motd.d/00-header
+  chmod -x /etc/update-motd.d/10-help-text
+
   cat > "$motd" <<'EOF'
 #!/bin/sh
 set -e
-myip=$(hostname -I | awk '{print$1}')
-bun_version=$(bun --version 2>/dev/null || echo "unknown")
+
+if [ -z "$DISTRIB_DESCRIPTION" ] && [ -x /usr/bin/lsb_release ]; then
+  # Fall back to using the very slow lsb_release utility
+  DISTRIB_DESCRIPTION=$(lsb_release -s -d)
+fi
+
+bun_version=$(bun --version 2>/dev/null || echo "-unknown")
+nginx_version=$(nginx -v 2>&1 | awk -F/ '{print $2}' || echo "-unknown")
+
 cat <<EOM
-********************************************************************************
-Welcome to a Ubuntu Bun.sh + Nginx host.
+Welcome to $DISTRIB_DESCRIPTION, with Bun v$bun_version and Nginx v$nginx_version.
 UFW is enabled with SSH(22), HTTP(80), and HTTPS(443) allowed.
 
-Nginx root: /var/www/html
-Bun version: $bun_version
-App dir: /root/app (service: bun-app)
-Public access: http://$myip
+ * Documentation: https://bun.sh
+ * Nginx docs: https://nginx.org/en/docs
+ * Certbot docs: https://certbot.eff.org
 
-Commands:
-  systemctl status bun-app    # Bun app status
-  journalctl -u bun-app -f    # Bun app logs
-  certbot --nginx             # Get HTTPS certs
+ Additional info:
 
-To remove this message: rm -f $(readlink -f "$0")
-********************************************************************************
+ * Nginx root: /var/www/html
+ * App dir: /root/app (service: bun-app)
+ * Public access: http://$(hostname -I | awk '{print$1}')
+
+ Commands:
+   systemctl status bun-app    # Bun app status
+   journalctl -u bun-app -f    # Bun app logs
+   certbot --nginx             # Get HTTPS certs
+
 EOM
 EOF
+
   chmod +x "$motd"
 }
 
