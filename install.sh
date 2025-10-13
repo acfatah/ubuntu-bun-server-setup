@@ -16,11 +16,16 @@ set -euo pipefail
 # ==============================================================================
 
 APP_DIR=/root/app
+NGINX_ROOT=/var/www/app/dist
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
 GREEN="\033[0;32m"
 YELLOW="\033[1;33m"
 RED="\033[0;31m"
 NC="\033[0m"
+
+if [ -n "${SKIP_SAMPLE_APP:-}" ]; then
+  NGINX_ROOT=/var/www/html
+fi
 
 # Uniquely identifies this installation instance
 INSTANCE_ID=$(uuidgen)
@@ -131,7 +136,7 @@ setup_sample_app() {
     return
   fi
   echo -e "${GREEN}Creating sample Bun app at $APP_DIR...${NC}"
-  mkdir -p "$APP_DIR/dist"
+  mkdir -p "$APP_DIR"
 
   # File: /root/app/server.ts
   # Simple Bun server with two routes
@@ -168,7 +173,7 @@ EOF
 }
 EOF
 
-  cat > /root/app/dist/index.html <<'EOF'
+  cat > "$NGINX_ROOT/index.html" <<'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -198,11 +203,17 @@ EOF
 </body>
 </html>
 EOF
+
+chown -R www-data:www-data "$NGINX_ROOT"
+
+# set directories to 755 and files to 644
+find "$NGINX_ROOT" -type d -exec chmod 755 {} +
+find "$NGINX_ROOT" -type f -exec chmod 644 {} +
 }
 
 # Writes a static index page for the default Nginx site.
 write_default_nginx_index() {
-  cat > /var/www/html/index.html <<'EOF'
+  cat > "$NGINX_ROOT/index.html" <<'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -279,10 +290,10 @@ server {
   # Update the server name
   server_name bun;
 
-  root /root/app/dist;
+  root $NGINX_ROOT;
   index index.html index.htm;
 
-  # Serve static files from the app dist directory. If the file is missing,
+  # Serve static files from the `$NGINX_ROOT` directory. If the file is missing,
   # fall back to the Bun server (mounted at @bun) so single-page apps or
   # server-side routes can be handled by Bun.
   location / {
@@ -331,7 +342,6 @@ configure_nginx() {
   echo -e "${GREEN}Configuring Nginx default site...${NC}"
 
   if [[ -n "${SKIP_SAMPLE_APP:-}" ]]; then
-    mkdir -p /var/www/html
     write_default_nginx_index
   else
     mkdir -p /etc/nginx/sites-available
@@ -442,12 +452,6 @@ fi
 bun_version=$(bun --version 2>/dev/null || echo "-unknown")
 nginx_version=$(nginx -v 2>&1 | awk -F/ '{print $2}' || echo "-unknown")
 
-if [ -n "${SKIP_SAMPLE_APP:-}" ]; then
-  nginx_root=/var/www/html
-else
-  nginx_root=/root/app/dist
-fi
-
 cat <<EOM
 Welcome to $DISTRIB_DESCRIPTION, with Bun v$bun_version and Nginx v$nginx_version.
 UFW is enabled with SSH(22), HTTP(80), and HTTPS(443) allowed.
@@ -458,7 +462,7 @@ UFW is enabled with SSH(22), HTTP(80), and HTTPS(443) allowed.
 
  Additional info:
 
- * Nginx root: $nginx_root
+ * Nginx root: $NGINX_ROOT
  * App dir: /root/app (service: bun-app)
  * Public access: http://$(hostname -I | awk '{print$1}')
 
@@ -511,6 +515,7 @@ main() {
   configure_ufw
   install_certbot
   install_bun
+  mkdir -p "$NGINX_ROOT"
   setup_sample_app
   configure_nginx
   create_systemd_service

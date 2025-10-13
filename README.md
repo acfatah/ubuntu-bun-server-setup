@@ -14,7 +14,7 @@ Bootstrap an opinionated, production-ready Bun application environment on Ubuntu
 - Install Certbot via snap for TLS management.
 - Configure UFW to allow SSH (22), HTTP (80) and HTTPS (443).
 - Optionally create a sample Bun app at `/root/app` and enable the bun-app service.
-- Serve static files from `/root/app/dist` if Bun app is set up.
+- Serve static files from `/var/www/app/dist` if Bun app is set up.
 - Intended for provisioning Ubuntu servers (22.04+); run as root/sudo with internet access.
 
 ## Prerequisites
@@ -76,7 +76,14 @@ sudo SKIP_SAMPLE_APP=1 bash install.sh
 ## Notes
 
 - The default Bun app runs from `/root/app` and executes `bun run start`.
-- Static files are served from `/root/app/dist` by Nginx.
+- Static files are served from `/var/www/app/dist` by Nginx. You should set correct permission:
+
+  ```bash
+  sudo chown -R www-data:www-data /var/www/app/dist
+  sudo find /var/www/app/dist -type d -exec chmod 755 {} +
+  sudo find /var/www/app/dist -type f -exec chmod 644 {} +
+  ```
+
 - Adjust to your app by replacing `/root/app` contents and updating the service ExecStart if needed.
 - If you skip the default app, you have to set up your own Bun application and service (unit file).
 
