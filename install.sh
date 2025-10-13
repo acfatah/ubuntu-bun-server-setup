@@ -18,10 +18,10 @@ set -euo pipefail
 APP_DIR=/root/app
 NGINX_ROOT=/var/www/app/dist
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
-GREEN="\033[0;32m"
-YELLOW="\033[1;33m"
-RED="\033[0;31m"
-NC="\033[0m"
+GREEN=$(printf '\033[0;32m')
+YELLOW=$(printf '\033[1;33m')
+RED=$(printf '\033[0;31m')
+NC=$(printf '\033[0m')
 
 if [ -n "${SKIP_SAMPLE_APP:-}" ]; then
   NGINX_ROOT=/var/www/html
@@ -501,7 +501,6 @@ print_summary() {
   fi
 
   cat <<EOF
-
 ${GREEN}Installation complete.${NC}
 
  * Instance ID: ${INSTANCE_ID}
