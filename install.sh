@@ -320,7 +320,7 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_cache_bypass $http_upgrade;
 
-    proxy_pass http://127.0.0.1:3000;
+    proxy_pass http://127.0.0.1:3000/;
   }
 }
 EOF
