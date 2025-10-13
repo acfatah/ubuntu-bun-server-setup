@@ -15,6 +15,7 @@ set -euo pipefail
 #   sudo bash install.sh
 # ==============================================================================
 
+APP_DIR=/root/app
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
 GREEN="\033[0;32m"
 YELLOW="\033[1;33m"
@@ -125,26 +126,22 @@ setup_sample_app() {
   # Honors: SKIP_SAMPLE_APP -> skip entirely. Idempotent: skips if dir exists.
   [[ -n "${SKIP_SAMPLE_APP:-}" ]] && return
 
-  local app_dir=/root/app
-  if [[ -d "$app_dir" ]]; then
-    echo -e "${YELLOW}Sample app directory exists: $app_dir (skipping).${NC}"
+  if [[ -d "$APP_DIR" ]]; then
+    echo -e "${YELLOW}Sample app directory exists: $APP_DIR (skipping).${NC}"
     return
   fi
-  echo -e "${GREEN}Creating sample Bun app at $app_dir...${NC}"
-  mkdir -p "$app_dir"
+  echo -e "${GREEN}Creating sample Bun app at $APP_DIR...${NC}"
+  mkdir -p "$APP_DIR/dist"
 
   # File: /root/app/server.ts
   # Simple Bun server with two routes
-  cat > "$app_dir/server.ts" <<'EOF'
+  cat > "$APP_DIR/server.ts" <<'EOF'
 const server = Bun.serve({
   async fetch(req) {
     const path = new URL(req.url).pathname;
 
-    // respond with text/html
-    if (path === "/") return new Response("Welcome to Bun!");
-
     // respond with JSON
-    if (path === "/api") return Response.json({
+    if (path === "/") return Response.json({
       message: "Welcome to Bun!"
     });
 
@@ -158,7 +155,7 @@ EOF
 
   # File: /root/app/package.json
   # Minimal package.json to run server.ts
-  cat > "$app_dir/package.json" <<'EOF'
+  cat > "$APP_DIR/package.json" <<'EOF'
 {
   "name": "bun-app",
   "version": "0.0.0",
@@ -169,6 +166,37 @@ EOF
     "restart": "systemctl restart bun-app"
   }
 }
+EOF
+
+  cat > /root/app/dist/index.html <<'EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hello World!</title>
+  <style type="text/css">
+    body {
+      margin: 40px auto;
+      max-width: 650px;
+      line-height: 1.6;
+      font-size: 18px;
+      color: #444;
+      padding: 0 10px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Hello Bun!</h1>
+</body>
+</html>
 EOF
 }
 
@@ -248,12 +276,32 @@ server {
   #
   # include snippets/snakeoil.conf;
 
-  root /var/www/html;
-
-  # Add index.php to the list if you are using PHP
-  index index.html index.htm index.nginx-debian.html;
-
+  # Update the server name
   server_name bun;
+
+  root /root/app/dist;
+  index index.html index.htm;
+
+  # Serve static files from the app dist directory. If the file is missing,
+  # fall back to the Bun server (mounted at @bun) so single-page apps or
+  # server-side routes can be handled by Bun.
+  location / {
+    try_files $uri $uri/ @bun;
+  }
+
+  # Named location that proxies requests to the Bun server running on localhost:3000
+  location @bun {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_cache_bypass $http_upgrade;
+
+    proxy_pass http://127.0.0.1:3000;
+  }
 
   location ^~ /assets/ {
     gzip_static on;
@@ -261,18 +309,18 @@ server {
     add_header Cache-Control public;
   }
 
-  location / {
+  # Proxy API calls directly to Bun. Keep behaviour consistent with @bun.
+  location ^~ /api/ {
     proxy_http_version 1.1;
-    proxy_cache_bypass $http_upgrade;
-
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection 'upgrade';
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_cache_bypass $http_upgrade;
 
-    proxy_pass http://localhost:3000;
+    proxy_pass http://127.0.0.1:3000;
   }
 }
 EOF
@@ -282,9 +330,8 @@ EOF
 configure_nginx() {
   echo -e "${GREEN}Configuring Nginx default site...${NC}"
 
-  mkdir -p /var/www/html
-
   if [[ -n "${SKIP_SAMPLE_APP:-}" ]]; then
+    mkdir -p /var/www/html
     write_default_nginx_index
   else
     mkdir -p /etc/nginx/sites-available
@@ -367,8 +414,8 @@ write_instance_id() {
   local INSTANCE_LINE
 
   INSTANCE_LINE="INSTANCE_ID=${INSTANCE_ID}"
-  if ! sudo grep -Fxq "$INSTANCE_LINE" /etc/environment; then
-      echo "$INSTANCE_LINE" | sudo tee -a /etc/environment > /dev/null
+  if ! grep -Fxq "$INSTANCE_LINE" /etc/environment; then
+      echo "$INSTANCE_LINE" | tee -a /etc/environment > /dev/null
   fi
 }
 
@@ -395,6 +442,12 @@ fi
 bun_version=$(bun --version 2>/dev/null || echo "-unknown")
 nginx_version=$(nginx -v 2>&1 | awk -F/ '{print $2}' || echo "-unknown")
 
+if [ -n "${SKIP_SAMPLE_APP:-}" ]; then
+  nginx_root=/var/www/html
+else
+  nginx_root=/root/app/dist
+fi
+
 cat <<EOM
 Welcome to $DISTRIB_DESCRIPTION, with Bun v$bun_version and Nginx v$nginx_version.
 UFW is enabled with SSH(22), HTTP(80), and HTTPS(443) allowed.
@@ -405,7 +458,7 @@ UFW is enabled with SSH(22), HTTP(80), and HTTPS(443) allowed.
 
  Additional info:
 
- * Nginx root: /var/www/html
+ * Nginx root: $nginx_root
  * App dir: /root/app (service: bun-app)
  * Public access: http://$(hostname -I | awk '{print$1}')
 
