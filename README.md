@@ -7,14 +7,16 @@
       src="https://img.shields.io/github/last-commit/acfatah/ubuntu-bun-server-setup?display_timestamp=committer&style=flat-square"></a>
 </p>
 
-Bootstrap an opinionated, production-ready Bun application environment on Ubuntu.  
+Bootstrap an opinionated, production-ready Bun application environment for Ubuntu.
 
-- Provision a server-ready Bun runtime and systemd service (bun-app).
-- Configure Nginx as a reverse proxy to `localhost:3000`.
-- Install Certbot via snap for TLS management.
-- Configure UFW to allow SSH (22), HTTP (80) and HTTPS (443).
-- Optionally create a sample Bun app at `/root/app` and enable the bun-app service.
-- Serve static files from `/var/www/app/dist` if Bun app is set up.
+- Installs Bun, Nginx, UFW, Certbot (via snap), and sets up a Bun app under `/root/app`.
+- Creates a systemd service `bun-app` for running the Bun app.
+- Configures Nginx as a reverse proxy to `localhost:3000` and serves static files 
+  from `/var/www/app/dist` (or `/var/www/html` if sample app is skipped).
+- Configures UFW: allows SSH (22), HTTP (80), and HTTPS (443), limits SSH, and prefers 
+  the 'Nginx Full' profile.
+- Optionally creates a sample Bun app at `/root/app` and enables the bun-app service 
+  (set `SKIP_SAMPLE_APP=1` to skip).
 - Intended for provisioning Ubuntu servers (22.04+); run as root/sudo with internet access.
 
 ## Prerequisites
@@ -65,7 +67,8 @@ When done:
 
 Set any to `1` to skip:
 
-- `SKIP_SAMPLE_APP=1` — Do not create sample `/root/app`
+- `SKIP_SAMPLE_APP=1` — Do not create sample `/root/app` and use `/var/www/html` 
+  for Nginx static root.
 
 Example:
 
@@ -76,7 +79,9 @@ sudo SKIP_SAMPLE_APP=1 bash install.sh
 ## Notes
 
 - The default Bun app runs from `/root/app` and executes `bun run start`.
-- Static files are served from `/var/www/app/dist` by Nginx. You should set correct permission:
+- Static files are served by Nginx from `/var/www/app/dist` (or `/var/www/html` if 
+  sample app is skipped). Place your built assets in that directory and set the correct 
+  permissions:
 
   ```bash
   sudo chown -R www-data:www-data /var/www/app/dist
@@ -84,10 +89,11 @@ sudo SKIP_SAMPLE_APP=1 bash install.sh
   sudo find /var/www/app/dist -type f -exec chmod 644 {} +
   ```
 
-- Adjust to your app by replacing `/root/app` contents and updating the service ExecStart if needed.
-- If you skip the default app, you have to set up your own Bun application and service (unit file).
-
-  You may use the following example:
+- Static files are served at `/` and API is proxied to Bun at `/api`.
+- To use your own Bun app, replace `/root/app` contents and update the systemd service 
+  ExecStart as needed.
+- If you skip the default app, set up your own Bun application and systemd unit file. 
+  Example:
 
   ```ini
   [Unit]
@@ -102,7 +108,7 @@ sudo SKIP_SAMPLE_APP=1 bash install.sh
   RestartSec=3
   User=root
   Environment=NODE_ENV=production
-  #Environment=INSTANCE_ID= # Get the value from /etc/environment
+  Environment=INSTANCE_ID= # Value from /etc/environment
   StandardOutput=journal
   StandardError=journal
   SyslogIdentifier=bun-app
