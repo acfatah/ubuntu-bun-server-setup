@@ -1,19 +1,21 @@
-# Ubuntu Bun Installer
+# Ubuntu Bun Server Setup
 
 <p>
-  <a href="https://github.com/acfatah/ubuntu-bun-installer/commits/main">
+  <a href="https://github.com/acfatah/ubuntu-bun-server-setup/commits/main">
     <img
       alt="GitHub last commit (by committer)"
-      src="https://img.shields.io/github/last-commit/acfatah/ubuntu-bun-installer?display_timestamp=committer&style=flat-square"></a>
+      src="https://img.shields.io/github/last-commit/acfatah/ubuntu-bun-server-setup?display_timestamp=committer&style=flat-square"></a>
 </p>
 
-Run a single script to bootstrap a production-ready Bun environment on Ubuntu.
+Bootstrap an opinionated, production-ready Bun application environment on Ubuntu.  
 
-- Installs Bun, Nginx, UFW
-- Installs Certbot via snap
-- Sets up a sample Bun app in `/root/app` (optional)
-- Creates a `bun-app` systemd service (`NODE_ENV=production`)
-- Writes application metadata and a helpful MOTD
+- Provision a server-ready Bun runtime and systemd service (bun-app).
+- Configure Nginx as a reverse proxy to `localhost:3000`.
+- Install Certbot via snap for TLS management.
+- Configure UFW to allow SSH (22), HTTP (80) and HTTPS (443).
+- Optionally create a sample Bun app at `/root/app` and enable the bun-app service.
+- Serve static files from `/root/app/dist` if Bun app is set up.
+- Intended for provisioning Ubuntu servers (22.04+); run as root/sudo with internet access.
 
 ## Prerequisites
 
@@ -37,13 +39,13 @@ Pipe the installer directly to bash (runs as root with sudo)
 > Piping remote scripts to a shell executes code from the network — review the script before running.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-installer/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo bash
 ```
 
 To skip sample app:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-installer/main/install.sh | sudo bash -s -- SKIP_SAMPLE_APP=1
+curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo bash -s -- SKIP_SAMPLE_APP=1
 ```
 
 Or after cloning this repository:
@@ -74,9 +76,12 @@ sudo SKIP_SAMPLE_APP=1 bash install.sh
 ## Notes
 
 - The default Bun app runs from `/root/app` and executes `bun run start`.
+- Static files are served from `/root/app/dist` by Nginx.
 - Adjust to your app by replacing `/root/app` contents and updating the service ExecStart if needed.
 - If you skip the default app, you have to set up your own Bun application and service (unit file).
+
   You may use the following example:
+
   ```ini
   [Unit]
   Description=Bun App
