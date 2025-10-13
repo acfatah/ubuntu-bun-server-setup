@@ -290,10 +290,10 @@ server {
   # Update the server name
   server_name bun;
 
-  root $NGINX_ROOT;
+  root __NGINX_ROOT__;
   index index.html index.htm;
 
-  # Serve static files from the `$NGINX_ROOT` directory. If the file is missing,
+  # Serve static files from the `__NGINX_ROOT__` directory. If the file is missing,
   # fall back to the Bun server (mounted at @bun) so single-page apps or
   # server-side routes can be handled by Bun.
   location / {
@@ -335,6 +335,8 @@ server {
   }
 }
 EOF
+
+  sed -i "s|__NGINX_ROOT__|$NGINX_ROOT|g" /etc/nginx/sites-available/default
 }
 
 # Configures Nginx defaults based on whether the Bun sample app is installed.
@@ -435,6 +437,12 @@ write_instance_id() {
 write_motd() {
   # Simple informative MOTD; does not expose passwords
   local motd=/etc/update-motd.d/00-custom
+
+  if [[ -d $motd ]];then
+    echo -e "${YELLOW}MOTD script already exists: $motd (skipping).${NC}"
+    return
+  fi
+
   echo -e "${GREEN}Creating MOTD entry at ${motd}...${NC}"
 
   chmod -x /etc/update-motd.d/00-header
