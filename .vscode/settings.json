@@ -1,0 +1,11 @@
+{
+  "editor.insertSpaces": false,
+  "editor.detectIndentation": false,
+  "editor.tabSize": 4,
+  "[shellscript]": {
+    "editor.formatOnSave": true
+  },
+  "shellformat.path": "shfmt",
+  "shellformat.flag": "-w -i 2 -bn -ci",
+  "editor.defaultFormatter": "timonwong.shellcheck"
+}

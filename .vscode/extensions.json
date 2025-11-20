@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    // Bash language server: completion, linting, navigation
+    "mads-hartmann.bash-ide-vscode",
+    // ShellCheck integration for static analysis and suggestions
+    "timonwong.shellcheck",
+    // Formatter using shfmt
+    "foxundermoon.shell-format",
+    // Debugger for Bash
+    "rogalmic.bash-debug"
+  ]
+}
