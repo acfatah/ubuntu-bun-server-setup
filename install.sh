@@ -41,6 +41,7 @@ require_root() {
 # Verifies the host is Ubuntu by reading /etc/os-release.
 require_ubuntu() {
   if [[ -f /etc/os-release ]]; then
+    # shellcheck source=/etc/os-release
     . /etc/os-release
     if [[ ${ID:-} != "ubuntu" ]]; then
       echo -e "${RED}This script targets Ubuntu. Detected: ${ID:-unknown}.${NC}" >&2
@@ -140,7 +141,7 @@ setup_sample_app() {
 
   # File: /root/app/server.ts
   # Simple Bun server with two routes
-  cat > "$APP_DIR/server.ts" <<'EOF'
+  cat >"$APP_DIR/server.ts" <<'EOF'
 const server = Bun.serve({
   async fetch(req) {
     const path = new URL(req.url).pathname;
@@ -160,7 +161,7 @@ EOF
 
   # File: /root/app/package.json
   # Minimal package.json to run server.ts
-  cat > "$APP_DIR/package.json" <<'EOF'
+  cat >"$APP_DIR/package.json" <<'EOF'
 {
   "name": "bun-app",
   "version": "0.0.0",
@@ -173,7 +174,7 @@ EOF
 }
 EOF
 
-  cat > "$NGINX_ROOT/index.html" <<'EOF'
+  cat >"$NGINX_ROOT/index.html" <<'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -204,16 +205,16 @@ EOF
 </html>
 EOF
 
-chown -R www-data:www-data "$NGINX_ROOT"
+  chown -R www-data:www-data "$NGINX_ROOT"
 
-# set directories to 755 and files to 644
-find "$NGINX_ROOT" -type d -exec chmod 755 {} +
-find "$NGINX_ROOT" -type f -exec chmod 644 {} +
+  # set directories to 755 and files to 644
+  find "$NGINX_ROOT" -type d -exec chmod 755 {} +
+  find "$NGINX_ROOT" -type f -exec chmod 644 {} +
 }
 
 # Writes a static index page for the default Nginx site.
 write_default_nginx_index() {
-  cat > "$NGINX_ROOT/index.html" <<'EOF'
+  cat >"$NGINX_ROOT/index.html" <<'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -247,7 +248,7 @@ EOF
 
 # Writes the Bun reverse proxy configuration to the default Nginx site.
 write_bun_nginx_config() {
-  cat > /etc/nginx/sites-available/default <<'EOF'
+  cat >/etc/nginx/sites-available/default <<'EOF'
 ##
 # You should look at the following URL's in order to grasp a solid understanding
 # of Nginx configuration files in order to fully unleash the power of Nginx.
@@ -365,7 +366,7 @@ create_systemd_service() {
 
   # File: /etc/systemd/system/bun-app.service
   # Create systemd service file
-  cat > /etc/systemd/system/bun-app.service <<'EOF'
+  cat >/etc/systemd/system/bun-app.service <<'EOF'
 [Unit]
 Description=Bun App
 After=network.target
@@ -403,15 +404,21 @@ write_application_info() {
   mkdir -p "$info_dir"
   local info_file="$info_dir/application.info"
   local application_name="Bun.sh"
-  local build_date; build_date=$(date +%Y-%m-%d)
-  local distro; distro=$(lsb_release -s -i 2>/dev/null || echo "unknown")
-  local distro_release; distro_release=$(lsb_release -s -r 2>/dev/null || echo "unknown")
-  local distro_codename; distro_codename=$(lsb_release -s -c 2>/dev/null || echo "unknown")
-  local distro_arch; distro_arch=$(uname -m)
-  local application_version; application_version=$(bun --version 2>/dev/null || echo "unknown")
+  local build_date
+  build_date=$(date +%Y-%m-%d)
+  local distro
+  distro=$(lsb_release -s -i 2>/dev/null || echo "unknown")
+  local distro_release
+  distro_release=$(lsb_release -s -r 2>/dev/null || echo "unknown")
+  local distro_codename
+  distro_codename=$(lsb_release -s -c 2>/dev/null || echo "unknown")
+  local distro_arch
+  distro_arch=$(uname -m)
+  local application_version
+  application_version=$(bun --version 2>/dev/null || echo "unknown")
 
   # File: /var/lib/app-info/application.info
-  cat > "$info_file" <<EOF
+  cat >"$info_file" <<EOF
 application_name="${application_name}"
 build_date="${build_date}"
 distro="${distro}"
@@ -427,7 +434,7 @@ write_instance_id() {
 
   INSTANCE_LINE="INSTANCE_ID=${INSTANCE_ID}"
   if ! grep -Fxq "$INSTANCE_LINE" /etc/environment; then
-      echo "$INSTANCE_LINE" | tee -a /etc/environment > /dev/null
+    echo "$INSTANCE_LINE" | tee -a /etc/environment >/dev/null
   fi
 }
 
@@ -438,7 +445,7 @@ write_motd() {
   # Simple informative MOTD; does not expose passwords
   local motd=/etc/update-motd.d/00-custom
 
-  if [[ -d $motd ]];then
+  if [[ -d $motd ]]; then
     echo -e "${YELLOW}MOTD script already exists: $motd (skipping).${NC}"
     return
   fi
@@ -448,7 +455,7 @@ write_motd() {
   chmod -x /etc/update-motd.d/00-header
   chmod -x /etc/update-motd.d/10-help-text
 
-  cat > "$motd" <<'EOF'
+  cat >"$motd" <<'EOF'
 #!/bin/sh
 set -e
 
