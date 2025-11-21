@@ -28,7 +28,7 @@ if [ -n "${SKIP_SAMPLE_APP:-}" ]; then
 fi
 
 # Uniquely identifies this installation instance
-INSTANCE_ID=$(uuidgen)
+INSTANCE_ID=$(cat /proc/sys/kernel/random/uuid)
 
 # Ensures the script is executed as root (UID 0).
 require_root() {
