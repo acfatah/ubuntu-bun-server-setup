@@ -18,7 +18,7 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 - Configures UFW: allows SSH (22), HTTP (80), and HTTPS (443), limits SSH, and prefers 
   the 'Nginx Full' profile.
 - Optionally creates a sample Bun app at `/root/app` and enables the bun-app service 
-  (set `SKIP_SAMPLE_APP=1` to skip).
+  (set `SKIP_BUN_APP=1` to skip).
 - Intended for provisioning Ubuntu servers (22.04+); run as root/sudo with internet access.
 
 ## Prerequisites
@@ -49,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/mai
 To skip sample app:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo bash -s -- SKIP_SAMPLE_APP=1
+curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo bash -s -- SKIP_BUN_APP=1
 ```
 
 Or after cloning this repository:
@@ -69,7 +69,7 @@ When done:
 
 Set any to `1` to skip:
 
-- `SKIP_SAMPLE_APP=1` — Do not create sample `/root/app` and use `/var/www/html` 
+- `SKIP_BUN_APP=1` — Do not create sample `/root/app` and use `/var/www/html` 
   for Nginx static root. 
   You are now responsible for building/copying your own Bun-generated HTML assets into `/var/www/html`.
 
@@ -78,7 +78,7 @@ Set any to `1` to skip:
 Example:
 
 ```bash
-sudo SKIP_SAMPLE_APP=1 bash install.sh
+sudo SKIP_BUN_APP=1 bash install.sh
 ```
 
 ## Notes

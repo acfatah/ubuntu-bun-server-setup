@@ -9,7 +9,7 @@ set -euo pipefail
 # - Optionally configures UFW and writes application info + MOTD
 #
 # Environment toggles (set to 1 to skip):
-#   SKIP_SAMPLE_APP=1    -> skip creating /root/app sample
+#   SKIP_BUN_APP=1    -> skip creating /root/app Bun app
 #
 # Usage:
 #   sudo bash install.sh
@@ -53,7 +53,7 @@ replace_placeholder() {
   sed -i "s|$escaped_placeholder|$escaped_value|g" "$target_file"
 }
 
-if [ -n "${SKIP_SAMPLE_APP:-}" ]; then
+if [ -n "${SKIP_BUN_APP:-}" ]; then
   NGINX_ROOT=/var/www/html
 fi
 
@@ -159,7 +159,7 @@ install_bun() {
 
 # Creates a minimal Bun app under /root/app unless disabled.
 setup_sample_app() {
-  [[ -n "${SKIP_SAMPLE_APP:-}" ]] && return
+  [[ -n "${SKIP_BUN_APP:-}" ]] && return
 
   mkdir -p "$APP_DIR"
   if [[ -f "$APP_DIR/server.ts" ]]; then
@@ -194,7 +194,7 @@ write_bun_nginx_config() {
 configure_nginx() {
   echo -e "${GREEN}Configuring Nginx default site...${NC}"
 
-  if [[ -n "${SKIP_SAMPLE_APP:-}" ]]; then
+  if [[ -n "${SKIP_BUN_APP:-}" ]]; then
     write_default_nginx_index
   else
     mkdir -p /etc/nginx/sites-available
@@ -209,8 +209,8 @@ configure_nginx() {
 # Starts/restarts only if /root/app exists. Idempotent: overwrite-safe.
 # Side effects: writes /etc/systemd/system/bun-app.service, daemon-reload, enable, (re)start.
 create_systemd_service() {
-  # Honors: SKIP_SAMPLE_APP -> skip entirely. Idempotent: skips if dir exists.
-  [[ -n "${SKIP_SAMPLE_APP:-}" ]] && return
+  # Honors: SKIP_BUN_APP -> skip entirely. Idempotent: skips if dir exists.
+  [[ -n "${SKIP_BUN_APP:-}" ]] && return
 
   echo -e "${GREEN}Configuring systemd service bun-app...${NC}"
 
