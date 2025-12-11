@@ -1,0 +1,7 @@
+application_name="Bun.sh"
+build_date="__BUILD_DATE__"
+distro="__DISTRO__"
+distro_release="__DISTRO_RELEASE__"
+distro_codename="__DISTRO_CODENAME__"
+distro_arch="__DISTRO_ARCH__"
+application_version="__APPLICATION_VERSION__"
