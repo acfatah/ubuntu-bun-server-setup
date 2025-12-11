@@ -65,6 +65,63 @@ When done:
 - Nginx default site: `http://<server-ip>` serving `/var/www/html`.
 - Get HTTPS cert for your Nginx site: `certbot --nginx`.
 
+## Testing
+
+This project includes a Docker-based end-to-end test harness that provisions
+an Ubuntu systemd environment in a container and runs the installer in
+realistic scenarios.
+
+### Requirements
+
+- Docker installed and the Docker daemon running.
+- Ability to run privileged containers (the test container runs systemd).
+- Run commands from the repository root.
+
+### Run the full test suite
+
+From the project root:
+
+```bash
+make test
+```
+
+This will:
+
+- Build a test image from `tests/docker/Dockerfile`.
+- Start short-lived, privileged containers mounting this repo read-only at
+  `/workspace`.
+- Execute the test scripts under `tests/docker/scripts/*.sh`.
+
+### Run an individual test
+
+You can target a specific scenario by calling the test runner directly:
+
+```bash
+tests/docker/run.sh test_root_guard
+tests/docker/run.sh test_default
+tests/docker/run.sh test_skip_sample
+```
+
+The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
+
+### Test scenarios
+
+- `test_root_guard.sh` — ensures the installer fails when run as a non-root
+  user.
+- `test_default.sh` — runs a default install and verifies systemd units,
+  application files, Nginx configuration, HTTP response (`"Hello Bun"`), and
+  `certbot` availability.
+- `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks
+  that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
+  content.
+
+You can override the test image name with the `BUN_INSTALLER_TEST_IMAGE`
+environment variable if you want to reuse or inspect the image:
+
+```bash
+BUN_INSTALLER_TEST_IMAGE=my-registry/ubuntu-bun-installer-tests make test
+```
+
 ## Environment toggles
 
 Set any to `1` to skip:
