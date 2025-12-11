@@ -266,7 +266,7 @@ write_instance_id() {
   fi
 }
 
-# Adds a helpful MOTD script under /etc/update-motd.d/99-bun.
+# Adds a helpful MOTD script under /etc/update-motd.d/00-custom.
 # Displays access info, common commands, and how to remove the MOTD.
 # Side effects: writes executable file used at login.
 write_motd() {
