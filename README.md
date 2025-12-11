@@ -1,6 +1,8 @@
 # Ubuntu Bun Server Setup
 
 <p>
+  <a href="./LICENSE">
+    <img alt="GitHub" src="https://img.shields.io/github/license/acfatah/vue-shadcn-spa?style=flat-square"></a>
   <a href="https://github.com/acfatah/ubuntu-bun-server-setup/commits/main">
     <img
       alt="GitHub last commit (by committer)"
