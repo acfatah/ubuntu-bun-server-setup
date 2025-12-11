@@ -22,6 +22,36 @@ GREEN=$(printf '\033[0;32m')
 YELLOW=$(printf '\033[1;33m')
 RED=$(printf '\033[0;31m')
 NC=$(printf '\033[0m')
+TEMPLATE_BASE_URL="https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/refs/heads/main/templates"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE_LOCAL_DIR="$SCRIPT_DIR/templates"
+
+download_template() {
+  local template_name="$1"
+  local dest_path="$2"
+  mkdir -p "$(dirname "$dest_path")"
+  local local_template="$TEMPLATE_LOCAL_DIR/$template_name"
+
+  if [[ -f "$local_template" ]]; then
+    echo -e "${YELLOW}Using local template for $template_name...${NC}"
+    cp "$local_template" "$dest_path"
+    return
+  fi
+
+  echo -e "${YELLOW}Downloading template $template_name...${NC}"
+  curl -fsSL "${TEMPLATE_BASE_URL}/${template_name}" -o "$dest_path"
+}
+
+replace_placeholder() {
+  local target_file="$1"
+  local placeholder="$2"
+  local value="$3"
+  local escaped_placeholder
+  local escaped_value
+  escaped_placeholder=$(printf '%s' "$placeholder" | sed -e 's/[|&]/\\\&/g')
+  escaped_value=$(printf '%s' "$value" | sed -e 's/[|&]/\\\&/g')
+  sed -i "s|$escaped_placeholder|$escaped_value|g" "$target_file"
+}
 
 if [ -n "${SKIP_SAMPLE_APP:-}" ]; then
   NGINX_ROOT=/var/www/html
@@ -129,81 +159,18 @@ install_bun() {
 
 # Creates a minimal Bun app under /root/app unless disabled.
 setup_sample_app() {
-  # Honors: SKIP_SAMPLE_APP -> skip entirely. Idempotent: skips if dir exists.
   [[ -n "${SKIP_SAMPLE_APP:-}" ]] && return
 
-  if [[ -d "$APP_DIR" ]]; then
+  mkdir -p "$APP_DIR"
+  if [[ -f "$APP_DIR/server.ts" ]]; then
     echo -e "${YELLOW}Sample app directory exists: $APP_DIR (skipping).${NC}"
     return
   fi
   echo -e "${GREEN}Creating sample Bun app at $APP_DIR...${NC}"
-  mkdir -p "$APP_DIR"
 
-  # File: /root/app/server.ts
-  # Simple Bun server with two routes
-  cat >"$APP_DIR/server.ts" <<'EOF'
-const server = Bun.serve({
-  async fetch(req) {
-    const path = new URL(req.url).pathname;
-
-    // respond with JSON
-    if (path === "/") return Response.json({
-      message: "Welcome to Bun!"
-    });
-
-    // 404s
-    return new Response("Page not found", { status: 404 });
-  },
-});
-
-console.log(`Listening on ${server.url}`);
-EOF
-
-  # File: /root/app/package.json
-  # Minimal package.json to run server.ts
-  cat >"$APP_DIR/package.json" <<'EOF'
-{
-  "name": "bun-app",
-  "version": "0.0.0",
-  "description": "Hello from bun!",
-  "main": "server.ts",
-  "scripts": {
-    "start": "bun run server.ts",
-    "restart": "systemctl restart bun-app"
-  }
-}
-EOF
-
-  cat >"$NGINX_ROOT/index.html" <<'EOF'
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hello World!</title>
-  <style type="text/css">
-    body {
-      margin: 40px auto;
-      max-width: 650px;
-      line-height: 1.6;
-      font-size: 18px;
-      color: #444;
-      padding: 0 10px;
-    }
-
-    h1,
-    h2,
-    h3 {
-      line-height: 1.2;
-    }
-  </style>
-</head>
-
-<body>
-  <h1>Hello Bun!</h1>
-</body>
-</html>
-EOF
+  download_template "server.ts" "$APP_DIR/server.ts"
+  download_template "package.json" "$APP_DIR/package.json"
+  download_template "nginx-index-sample.html" "$NGINX_ROOT/index.html"
 
   chown -R www-data:www-data "$NGINX_ROOT"
 
@@ -214,130 +181,13 @@ EOF
 
 # Writes a static index page for the default Nginx site.
 write_default_nginx_index() {
-  cat >"$NGINX_ROOT/index.html" <<'EOF'
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hello World!</title>
-  <style type="text/css">
-    body {
-      margin: 40px auto;
-      max-width: 650px;
-      line-height: 1.6;
-      font-size: 18px;
-      color: #444;
-      padding: 0 10px;
-    }
-
-    h1,
-    h2,
-    h3 {
-      line-height: 1.2;
-    }
-  </style>
-</head>
-
-<body>
-  <h1>Hello World!</h1>
-</body>
-</html>
-EOF
+  download_template "nginx-index-default.html" "$NGINX_ROOT/index.html"
 }
 
 # Writes the Bun reverse proxy configuration to the default Nginx site.
 write_bun_nginx_config() {
-  cat >/etc/nginx/sites-available/default <<'EOF'
-##
-# You should look at the following URL's in order to grasp a solid understanding
-# of Nginx configuration files in order to fully unleash the power of Nginx.
-# https://www.nginx.com/resources/wiki/start/
-# https://www.nginx.com/resources/wiki/start/topics/tutorials/config_pitfalls/
-# https://wiki.debian.org/Nginx/DirectoryStructure
-#
-# In most cases, administrators will remove this file from sites-enabled/ and
-# leave it as reference inside of sites-available where it will continue to be
-# updated by the nginx packaging team.
-#
-# This file will automatically load configuration files provided by other
-# applications, such as Drupal or Wordpress. These applications will be made
-# available underneath a path with that package name, such as /drupal8.
-#
-# Please see /usr/share/doc/nginx-doc/examples/ for more detailed examples.
-##
-
-# Default server configuration
-server {
-  listen 80 default_server;
-  listen [::]:80 default_server;
-
-  # SSL configuration
-  #
-  # listen 443 ssl default_server;
-  # listen [::]:443 ssl default_server;
-  #
-  # Note: You should disable gzip for SSL traffic.
-  # See: https://bugs.debian.org/773332
-  #
-  # Read up on ssl_ciphers to ensure a secure configuration.
-  # See: https://bugs.debian.org/765782
-  #
-  # Self signed certs generated by the ssl-cert package
-  # Don't use them in a production server!
-  #
-  # include snippets/snakeoil.conf;
-
-  # Update the server name
-  server_name bun;
-
-  root __NGINX_ROOT__;
-  index index.html index.htm;
-
-  # Serve static files from the `__NGINX_ROOT__` directory. If the file is missing,
-  # fall back to the Bun server (mounted at @bun) so single-page apps or
-  # server-side routes can be handled by Bun.
-  location / {
-    try_files $uri $uri/ @bun;
-  }
-
-  # Named location that proxies requests to the Bun server running on localhost:3000
-  location @bun {
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection 'upgrade';
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_cache_bypass $http_upgrade;
-
-    proxy_pass http://127.0.0.1:3000;
-  }
-
-  location ^~ /assets/ {
-    gzip_static on;
-    expires 12h;
-    add_header Cache-Control public;
-  }
-
-  # Proxy API calls directly to Bun. Keep behaviour consistent with @bun.
-  location ^~ /api/ {
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection 'upgrade';
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_cache_bypass $http_upgrade;
-
-    proxy_pass http://127.0.0.1:3000/;
-  }
-}
-EOF
-
-  sed -i "s|__NGINX_ROOT__|$NGINX_ROOT|g" /etc/nginx/sites-available/default
+  download_template "nginx-default.conf" /etc/nginx/sites-available/default
+  replace_placeholder "/etc/nginx/sites-available/default" "__NGINX_ROOT__" "$NGINX_ROOT"
 }
 
 # Configures Nginx defaults based on whether the Bun sample app is installed.
@@ -366,27 +216,8 @@ create_systemd_service() {
 
   # File: /etc/systemd/system/bun-app.service
   # Create systemd service file
-  cat >/etc/systemd/system/bun-app.service <<'EOF'
-[Unit]
-Description=Bun App
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/root/app
-ExecStart=/root/.bun/bin/bun run start
-Restart=always
-RestartSec=3
-User=root
-Environment=NODE_ENV=production
-Environment=INSTANCE_ID=${INSTANCE_ID}
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=bun-app
-
-[Install]
-WantedBy=multi-user.target
-EOF
+  download_template "bun-app.service" /etc/systemd/system/bun-app.service
+  replace_placeholder "/etc/systemd/system/bun-app.service" "__INSTANCE_ID__" "$INSTANCE_ID"
   systemctl daemon-reload
   systemctl enable bun-app >/dev/null 2>&1 || true
   # Start only if app folder exists
@@ -417,16 +248,13 @@ write_application_info() {
   local application_version
   application_version=$(bun --version 2>/dev/null || echo "unknown")
 
-  # File: /var/lib/app-info/application.info
-  cat >"$info_file" <<EOF
-application_name="${application_name}"
-build_date="${build_date}"
-distro="${distro}"
-distro_release="${distro_release}"
-distro_codename="${distro_codename}"
-distro_arch="${distro_arch}"
-application_version="${application_version}"
-EOF
+  download_template "application.info" "$info_file"
+  replace_placeholder "$info_file" "__BUILD_DATE__" "$build_date"
+  replace_placeholder "$info_file" "__DISTRO__" "$distro"
+  replace_placeholder "$info_file" "__DISTRO_RELEASE__" "$distro_release"
+  replace_placeholder "$info_file" "__DISTRO_CODENAME__" "$distro_codename"
+  replace_placeholder "$info_file" "__DISTRO_ARCH__" "$distro_arch"
+  replace_placeholder "$info_file" "__APPLICATION_VERSION__" "$application_version"
 }
 
 write_instance_id() {
@@ -455,39 +283,8 @@ write_motd() {
   chmod -x /etc/update-motd.d/00-header
   chmod -x /etc/update-motd.d/10-help-text
 
-  cat >"$motd" <<'EOF'
-#!/bin/sh
-set -e
-
-if [ -z "$DISTRIB_DESCRIPTION" ] && [ -x /usr/bin/lsb_release ]; then
-  # Fall back to using the very slow lsb_release utility
-  DISTRIB_DESCRIPTION=$(lsb_release -s -d)
-fi
-
-bun_version=$(bun --version 2>/dev/null || echo "-unknown")
-nginx_version=$(nginx -v 2>&1 | awk -F/ '{print $2}' || echo "-unknown")
-
-cat <<EOM
-Welcome to $DISTRIB_DESCRIPTION, with Bun v$bun_version and Nginx v$nginx_version.
-UFW is enabled with SSH(22), HTTP(80), and HTTPS(443) allowed.
-
- * Documentation: https://bun.sh
- * Nginx docs: https://nginx.org/en/docs
- * Certbot docs: https://certbot.eff.org
-
- Additional info:
-
- * Nginx root: $NGINX_ROOT
- * App dir: /root/app (service: bun-app)
- * Public access: http://$(hostname -I | awk '{print$1}')
-
- Commands:
-   systemctl status bun-app    # Bun app status
-   journalctl -u bun-app -f    # Bun app logs
-   certbot --nginx             # Get HTTPS certs
-
-EOM
-EOF
+  download_template "motd.sh" "$motd"
+  replace_placeholder "$motd" "__NGINX_ROOT__" "$NGINX_ROOT"
 
   chmod +x "$motd"
 }

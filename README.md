@@ -70,7 +70,10 @@ When done:
 Set any to `1` to skip:
 
 - `SKIP_SAMPLE_APP=1` — Do not create sample `/root/app` and use `/var/www/html` 
-  for Nginx static root.
+  for Nginx static root. 
+  You are now responsible for building/copying your own Bun-generated HTML assets into `/var/www/html`.
+
+  Build steps typically look like `bun install && bun run build` from your project and then `cp -R dist/* /var/www/html` before managing your own Bun service.
 
 Example:
 
