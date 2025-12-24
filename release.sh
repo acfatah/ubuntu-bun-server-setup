@@ -167,13 +167,17 @@ if [ "$DRY_RUN" = false ]; then
     git tag "$TAG_NAME"
     echo "Created git tag: $TAG_NAME"
 
+    # Push branch and tag
+    CURRENT_BRANCH=$(git symbolic-ref --short HEAD)
+    git push origin "$CURRENT_BRANCH"
+    echo "Pushed branch: $CURRENT_BRANCH"
+    git push origin "$TAG_NAME"
+    echo "Pushed tag: $TAG_NAME"
+
     echo ""
     echo "Release completed successfully!"
     echo "Version: $CURRENT_VERSION -> $TARGET_VERSION"
     echo "Tag: $TAG_NAME"
-    echo ""
-    echo "To push changes and tags:"
-    echo "  git push origin main && git push origin $TAG_NAME"
 else
     echo ""
     echo "[DRY RUN] Would perform the following actions:"
