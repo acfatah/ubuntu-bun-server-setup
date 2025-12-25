@@ -5,10 +5,11 @@
 # Similar to bumpp for npm packages but for bash scripts.
 #
 # Usage:
-#   ./release.sh        # Bump patch version (1.0.0 -> 1.0.1)
-#   ./release.sh minor  # Bump minor version (1.0.0 -> 1.1.0)
-#   ./release.sh major  # Bump major version (1.0.0 -> 2.0.0)
-#   ./release.sh 2.0.0  # Set specific version
+#   ./release.sh          # Interactive prompt for release type (patch default)
+#   ./release.sh --patch  # Bump patch version (1.0.0 -> 1.0.1)
+#   ./release.sh --minor  # Bump minor version (1.0.0 -> 1.1.0)
+#   ./release.sh --major  # Bump major version (1.0.0 -> 2.0.0)
+#   ./release.sh 2.0.0    # Set specific version
 
 set -euo pipefail
 
@@ -20,7 +21,8 @@ GIT_TAG_TEMPLATE="v{version}"
 # Function to print usage
 print_usage() {
     echo "Usage:"
-    echo "  $0                  # Bump patch version (1.0.0 -> 1.0.1)"
+    echo "  $0                  # Interactive prompt for release type (patch default)"
+    echo "  $0 patch            # Bump patch version (1.0.0 -> 1.0.1)"
     echo "  $0 minor            # Bump minor version (1.0.0 -> 1.1.0)"
     echo "  $0 major            # Bump major version (1.0.0 -> 2.0.0)"
     echo "  $0 2.0.0            # Set specific version"
@@ -28,6 +30,43 @@ print_usage() {
     echo "Options:"
     echo "  -h, --help          Show this help message"
     echo "  -d, --dry-run       Show what would be done without making changes"
+    echo "  --patch             Shortcut to bump patch"
+    echo "  --minor             Shortcut to bump minor"
+    echo "  --major             Shortcut to bump major"
+}
+
+# Prompt user for release type when no arguments were provided
+prompt_release_type() {
+    if [ ! -t 0 ]; then
+        echo "Non-interactive shell detected; defaulting to patch release."
+        printf "patch"
+        return
+    fi
+
+    while true; do
+        echo "Select release type:"
+        echo "  1) patch (default)"
+        echo "  2) minor"
+        echo "  3) major"
+        read -rp "Choice [1-3]: " choice
+        case "${choice,,}" in
+            ""|1|patch)
+                printf "patch"
+                return
+                ;;
+            2|minor)
+                printf "minor"
+                return
+                ;;
+            3|major)
+                printf "major"
+                return
+                ;;
+            *)
+                echo "Invalid choice: $choice"
+                ;;
+        esac
+    done
 }
 
 # Function to validate version format
@@ -89,7 +128,7 @@ update_version_in_files() {
 
 # Parse command line arguments
 DRY_RUN=false
-INCREMENT_TYPE="patch"
+INCREMENT_TYPE=""
 NEW_VERSION=""
 
 while [[ $# -gt 0 ]]; do
@@ -100,6 +139,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         -d|--dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        --major)
+            INCREMENT_TYPE="major"
+            shift
+            ;;
+        --minor)
+            INCREMENT_TYPE="minor"
+            shift
+            ;;
+        --patch)
+            INCREMENT_TYPE="patch"
             shift
             ;;
         major|minor|patch)
@@ -135,6 +186,9 @@ if [ -n "$NEW_VERSION" ]; then
     validate_version "$NEW_VERSION"
     TARGET_VERSION="$NEW_VERSION"
 else
+    if [ -z "$INCREMENT_TYPE" ]; then
+        INCREMENT_TYPE=$(prompt_release_type)
+    fi
     # Increment based on type
     TARGET_VERSION=$(increment_version "$CURRENT_VERSION" "$INCREMENT_TYPE")
 fi
