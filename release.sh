@@ -132,6 +132,7 @@ update_version_in_files() {
 DRY_RUN=false
 INCREMENT_TYPE=""
 NEW_VERSION=""
+INCREMENT_TYPE_FROM_ARG=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -145,18 +146,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --major)
             INCREMENT_TYPE="major"
+            INCREMENT_TYPE_FROM_ARG=true
             shift
             ;;
         --minor)
             INCREMENT_TYPE="minor"
+            INCREMENT_TYPE_FROM_ARG=true
             shift
             ;;
         --patch)
             INCREMENT_TYPE="patch"
+            INCREMENT_TYPE_FROM_ARG=true
             shift
             ;;
         major|minor|patch)
             INCREMENT_TYPE="$1"
+            INCREMENT_TYPE_FROM_ARG=true
             shift
             ;;
         *)
@@ -190,6 +195,8 @@ if [ -n "$NEW_VERSION" ]; then
 else
     if [ -z "$INCREMENT_TYPE" ]; then
         INCREMENT_TYPE=$(prompt_release_type)
+    elif [ "$INCREMENT_TYPE_FROM_ARG" = true ]; then
+        echo "Release type '$INCREMENT_TYPE' supplied via arguments; skipping interactive prompt."
     fi
     # Increment based on type
     TARGET_VERSION=$(increment_version "$CURRENT_VERSION" "$INCREMENT_TYPE")
