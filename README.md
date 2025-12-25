@@ -2,7 +2,7 @@
 
 <p>
   <a href="./LICENSE">
-    <img alt="GitHub" src="https://img.shields.io/github/license/acfatah/vue-shadcn-spa?style=flat-square"></a>
+    <img alt="GitHub" src="https://img.shields.io/github/license/acfatah/ubuntu-bun-server-setup?style=flat-square"></a>
   <a href="https://github.com/acfatah/ubuntu-bun-server-setup/releases">
     <img alt="GitHub Release" src="https://img.shields.io/github/v/release/acfatah/ubuntu-bun-server-setup"></a>
   <a href="https://github.com/acfatah/ubuntu-bun-server-setup/commits/main">
