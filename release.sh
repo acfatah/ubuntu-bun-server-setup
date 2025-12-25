@@ -44,10 +44,12 @@ prompt_release_type() {
     fi
 
     while true; do
-        echo "Select release type:"
-        echo "  1) patch (default)"
-        echo "  2) minor"
-        echo "  3) major"
+        cat <<'PROMPT' >&2
+Select release type:
+  1) patch (default)
+  2) minor
+  3) major
+PROMPT
         read -rp "Choice [1-3]: " choice
         case "${choice,,}" in
             ""|1|patch)
@@ -63,7 +65,7 @@ prompt_release_type() {
                 return
                 ;;
             *)
-                echo "Invalid choice: $choice"
+                echo "Invalid choice: $choice" >&2
                 ;;
         esac
     done
