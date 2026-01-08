@@ -190,6 +190,18 @@ write_bun_nginx_config() {
   replace_placeholder "/etc/nginx/sites-available/default" "__NGINX_ROOT__" "$NGINX_ROOT"
 }
 
+# Deploys the Cloudflare helper templates into the main Nginx directory.
+copy_cloudflare_templates() {
+  echo -e "${GREEN}Copying Cloudflare helper files to /etc/nginx...${NC}"
+  local nginx_dir="/etc/nginx"
+
+  for template in cloudflare-ip-filter.conf cloudflare-update-ips.sh; do
+    download_template "$template" "$nginx_dir/$template"
+  done
+
+  chmod +x "$nginx_dir/cloudflare-update-ips.sh" || true
+}
+
 # Configures Nginx defaults based on whether the Bun sample app is installed.
 configure_nginx() {
   echo -e "${GREEN}Configuring Nginx default site...${NC}"
@@ -200,6 +212,8 @@ configure_nginx() {
     mkdir -p /etc/nginx/sites-available
     write_bun_nginx_config
   fi
+
+  copy_cloudflare_templates
 
   systemctl enable nginx >/dev/null 2>&1 || true
   systemctl restart nginx || true

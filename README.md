@@ -67,6 +67,28 @@ When done:
 - Nginx default site: `http://<server-ip>` serving `/var/www/html`.
 - Get HTTPS cert for your Nginx site: `certbot --nginx`.
 
+## Cloudflare IP updates (optional)
+
+The [templates/cloudflare-update-ips.sh](templates/cloudflare-update-ips.sh)
+  script downloads Cloudflare's IPv4 and IPv6 ranges, converts each line into an `allow`
+  directive, and rewrites `/etc/nginx/cloudflare-ip-filter.conf` before reloading Nginx.
+
+The nginx default config already ships with the include commented out. To enable
+this feature, uncomment the `include cloudflare-ip-filter.conf;` line in the server
+block to apply the allowlist to the default host.
+
+If you need the rules applied globally, place the include in the `http { ... }` block
+of `/etc/nginx/nginx.conf` instead, so every server block inherits it.
+
+Schedule the script with cron (runs as root so it can reload Nginx) by using `crontab -e`;
+for example, adding the following line:
+
+```
+1 2 * * * /etc/nginx/cloudflare-update-ips.sh
+```
+
+This runs shortly after 2:00 AM every day to keep Cloudflare's allowlist current. The script logs warnings to `/var/log/cloudflare-update-ips.log` if it can’t download enough addresses.
+
 ## Testing
 
 This project includes a Docker-based end-to-end test harness that provisions
