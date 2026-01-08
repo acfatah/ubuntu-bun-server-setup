@@ -14,8 +14,8 @@ echo -ne "${YELLOW}[test]${NC} bun-app: "; systemctl is-enabled bun-app
 systemctl is-active --quiet nginx
 systemctl is-active --quiet bun-app
 
-assert_dir_exists /root/app
-assert_file_exists /root/app/server.ts
+assert_dir_exists /srv/app
+assert_file_exists /srv/app/server.ts
 assert_file_exists /etc/systemd/system/bun-app.service
 assert_file_exists /var/lib/app-info/application.info
 assert_file_contains /etc/nginx/sites-available/default "root /var/www/app/dist"

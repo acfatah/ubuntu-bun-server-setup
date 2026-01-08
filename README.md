@@ -13,13 +13,13 @@
 
 Bootstrap an opinionated, production-ready Bun application environment for Ubuntu.
 
-- Installs Bun, Nginx, UFW, Certbot (via snap), and sets up a Bun app under `/root/app`.
+- Installs Bun, Nginx, UFW, Certbot (via snap), and sets up a Bun app under `/srv/app`.
 - Creates a systemd service `bun-app` for running the Bun app.
 - Configures Nginx as a reverse proxy to `localhost:3000` and serves static files 
   from `/var/www/app/dist` (or `/var/www/html` if sample app is skipped).
 - Configures UFW: allows SSH (22), HTTP (80), and HTTPS (443), limits SSH, and prefers 
   the 'Nginx Full' profile.
-- Optionally creates a sample Bun app at `/root/app` and enables the bun-app service 
+- Optionally creates a sample Bun app at `/srv/app` and enables the bun-app service 
   (set `SKIP_BUN_APP=1` to skip).
 - Intended for provisioning Ubuntu servers (22.04+); run as root/sudo with internet access.
 
@@ -150,7 +150,7 @@ BUN_INSTALLER_TEST_IMAGE=my-registry/ubuntu-bun-installer-tests make test
 
 Set any to `1` to skip:
 
-- `SKIP_BUN_APP=1` — Do not create sample `/root/app` and use `/var/www/html` 
+- `SKIP_BUN_APP=1` — Do not create sample `/srv/app` and use `/var/www/html` 
   for Nginx static root. 
   You are now responsible for building/copying your own Bun-generated HTML assets into `/var/www/html`.
 
@@ -164,7 +164,7 @@ sudo SKIP_BUN_APP=1 bash install.sh
 
 ## Notes
 
-- The default Bun app runs from `/root/app` and executes `bun run start`.
+- The default Bun app runs from `/srv/app` and executes `bun run start`.
 - Static files are served by Nginx from `/var/www/app/dist` (or `/var/www/html` if 
   sample app is skipped). Place your built assets in that directory and set the correct 
   permissions:
@@ -176,7 +176,7 @@ sudo SKIP_BUN_APP=1 bash install.sh
   ```
 
 - Static files are served at `/` and API is proxied to Bun at `/api`.
-- To use your own Bun app, replace `/root/app` contents and update the systemd service 
+- To use your own Bun app, replace `/srv/app` contents and update the systemd service 
   ExecStart as needed.
 - If you skip the default app, set up your own Bun application and systemd unit file. 
   Example:
@@ -188,7 +188,7 @@ sudo SKIP_BUN_APP=1 bash install.sh
 
   [Service]
   Type=simple
-  WorkingDirectory=/root/app
+  WorkingDirectory=/srv/app
   ExecStart=/root/.bun/bin/bun run start
   Restart=always
   RestartSec=3

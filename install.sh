@@ -4,18 +4,18 @@ set -euo pipefail
 # ==============================================================================
 # Ubuntu Bun installer
 # - Installs Nginx, UFW, Certbot (snap), Bun
-# - Sets up a simple Bun app under /root/app
+# - Sets up a simple Bun app under /srv/app
 # - Creates systemd service bun-app
 # - Optionally configures UFW and writes application info + MOTD
 #
 # Environment toggles (set to 1 to skip):
-#   SKIP_BUN_APP=1    -> skip creating /root/app Bun app
+#   SKIP_BUN_APP=1    -> skip creating /srv/app Bun app
 #
 # Usage:
 #   sudo bash install.sh
 # ==============================================================================
 
-APP_DIR=/root/app
+APP_DIR=/srv/app
 NGINX_ROOT=/var/www/app/dist
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
 GREEN=$(printf '\033[0;32m')
@@ -157,7 +157,7 @@ install_bun() {
   echo -e "${GREEN}Bun version: v$(bun --version)${NC}"
 }
 
-# Creates a minimal Bun app under /root/app unless disabled.
+# Creates a minimal Bun app under /srv/app unless disabled.
 setup_sample_app() {
   [[ -n "${SKIP_BUN_APP:-}" ]] && return
 
@@ -220,7 +220,7 @@ configure_nginx() {
 }
 
 # Creates and enables systemd unit for the Bun app (bun-app).
-# Starts/restarts only if /root/app exists. Idempotent: overwrite-safe.
+# Starts/restarts only if /srv/app exists. Idempotent: overwrite-safe.
 # Side effects: writes /etc/systemd/system/bun-app.service, daemon-reload, enable, (re)start.
 create_systemd_service() {
   # Honors: SKIP_BUN_APP -> skip entirely. Idempotent: skips if dir exists.
@@ -235,7 +235,7 @@ create_systemd_service() {
   systemctl daemon-reload
   systemctl enable bun-app >/dev/null 2>&1 || true
   # Start only if app folder exists
-  if [[ -d /root/app ]]; then
+  if [[ -d $APP_DIR ]]; then
     systemctl restart bun-app || systemctl start bun-app || true
   fi
 }

@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/root/app
+WorkingDirectory=/srv/app
 ExecStart=/root/.bun/bin/bun run start
 Restart=always
 RestartSec=3
