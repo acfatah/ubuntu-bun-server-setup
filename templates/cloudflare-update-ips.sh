@@ -3,7 +3,7 @@
 CONFIG_PATH="/etc/nginx/cloudflare-ip-filter.conf"
 
 get_cloudflare_ips() {
-  curl -ks "https://www.cloudflare.com/ips-v{4,6}" -w "\n"
+ curl -fsS --proto '=https' --tlsv1.2 "https://www.cloudflare.com/ips-v{4,6}" -w "\n"
 }
 
 RULES=$(get_cloudflare_ips | sed "s/^/allow /g" | sed "s/\$/;/g" && printf "\ndeny all;")
