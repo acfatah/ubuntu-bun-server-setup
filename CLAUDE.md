@@ -46,10 +46,26 @@ a token means editing both the template and the matching
 ### Install flow (`main`)
 
 root check → Ubuntu check → apt full-upgrade → base packages → UFW reset +
-rules → Certbot snap → Bun (to `/root/.bun`, symlinked to
-`/usr/local/bin/bun`) → sample app → Nginx config + Cloudflare helpers →
-systemd unit → `/var/lib/app-info/application.info` → `INSTANCE_ID` appended
-to `/etc/environment` → MOTD → summary.
+rules → Certbot snap → Bun (`BUN_INSTALL=/usr/local` → `/usr/local/bin/bun`)
+→ `bun-app` system user → sample app → Nginx config + Cloudflare helpers →
+systemd unit + `/srv/app/data` symlink → `/var/lib/app-info/application.info`
+→ `INSTANCE_ID` appended to `/etc/environment` → MOTD → summary.
+
+### Service user and sandbox
+
+- `bun-app.service` runs as `bun-app` (nologin) with a strict sandbox
+  (`ProtectSystem=strict`, empty `CapabilityBoundingSet`, ...). README
+  "Security" documents every directive; keep the two in sync.
+- `/srv/app` is root-owned and read-only to the service. Writable state is
+  `StateDirectory=bun-app` (`/var/lib/bun-app`, symlinked as
+  `/srv/app/data`) and `CacheDirectory=bun-app`.
+- Never add `MemoryDenyWriteExecute`: Bun's JIT needs W+X memory and the
+  unit crash-loops.
+- `install_bun` skips only if `/usr/local/bin/bun` runs as `nobody`
+  (`runuser -u nobody`); a legacy symlink into `/root/.bun` is replaced.
+  Gotcha: `setpriv --reuid=nobody <bin>` falsely succeeds for binaries
+  under `/root`; don't use it for permission probes.
+- `create_app_user` and the data symlink are skipped with `SKIP_BUN_APP`.
 
 ### `SKIP_BUN_APP` mode
 
@@ -72,7 +88,8 @@ to `/etc/environment` → MOTD → summary.
 ### Idempotency expectations
 
 Re-running must be safe: sample app skipped if `/srv/app/server.ts` exists,
-`INSTANCE_ID` line only appended if absent, UFW is `--force reset` every run.
+`INSTANCE_ID` line only appended if absent, UFW is `--force reset` every run,
+`bun-app` user and `/srv/app/data` only created if absent.
 Note a fresh `INSTANCE_ID` UUID is generated on every run.
 
 ## Tests (`tests/docker/`)
@@ -81,8 +98,10 @@ Note a fresh `INSTANCE_ID` UUID is generated on every run.
   container per test with the repo mounted read-only at `/workspace`, and
   runs `tests/docker/scripts/<test>.sh` inside it.
 - Scenarios: `test_root_guard` (non-root fails), `test_default` (full
-  install, `curl` expects `"Hello Bun"`), `test_skip_sample`
-  (`SKIP_BUN_APP=1`, expects `"Hello World"`).
+  install, `curl` expects `"Hello Bun"` and `/api/` → `"Welcome to Bun"`,
+  service runs as `bun-app`, code read-only, state dir writable),
+  `test_skip_sample` (`SKIP_BUN_APP=1`, expects `"Hello World"`, no
+  `bun-app` user).
 - Adding a test: create `scripts/test_x.sh` sourcing `common.sh`
   (`run_installer`, `assert_*` helpers) **and** register it in both the
   default `scripts` array and the `case` in `run.sh`, or it is rejected as

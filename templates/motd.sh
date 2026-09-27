@@ -19,7 +19,8 @@ UFW is enabled with SSH(22), HTTP(80), and HTTPS(443) allowed.
  Additional info:
 
  * Nginx root: __NGINX_ROOT__
- * App dir: /srv/app (service: bun-app)
+ * App dir: /srv/app (service: bun-app, runs as user bun-app)
+ * App data: /var/lib/bun-app (= /srv/app/data)
  * Public access: http://$(hostname -I | awk '{print$1}')
 
  Commands:

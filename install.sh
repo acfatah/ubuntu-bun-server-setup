@@ -5,7 +5,7 @@ set -euo pipefail
 # Ubuntu Bun installer
 # - Installs Nginx, UFW, Certbot (snap), Bun
 # - Sets up a simple Bun app under /srv/app
-# - Creates systemd service bun-app
+# - Creates sandboxed systemd service bun-app (runs as user bun-app)
 # - Optionally configures UFW and writes application info + MOTD
 #
 # Environment toggles (set to 1 to skip):
@@ -137,24 +137,47 @@ install_certbot() {
   snap set certbot trust-plugin-with-root=ok || true
 }
 
-# Installs Bun if not present and ensures it's on PATH via symlink.
+# Installs Bun system-wide to /usr/local/bin/bun so the unprivileged
+# bun-app user can execute it. Skips if that binary already works for a
+# non-root user; replaces a legacy symlink into /root/.bun.
 install_bun() {
-  if command -v bun >/dev/null 2>&1; then
-    echo -e "${YELLOW}Bun already installed: $(bun --version)${NC}"
+  local bun_bin=/usr/local/bin/bun
+  local installer
+
+  # runuser, not setpriv: setpriv reports success on a binary under /root
+  if runuser -u nobody -- "$bun_bin" --version >/dev/null 2>&1; then
+    echo -e "${YELLOW}Bun already installed: $("$bun_bin" --version)${NC}"
     return
   fi
 
-  echo -e "${GREEN}Installing Bun...${NC}"
-  curl -fsSL https://bun.sh/install -o /tmp/bun_setup.sh
-  bash /tmp/bun_setup.sh
-  rm -f /tmp/bun_setup.sh
-
-  # Ensure bun is globally accessible
-  if [[ -x /root/.bun/bin/bun && ! -e /usr/local/bin/bun ]]; then
-    ln -s /root/.bun/bin/bun /usr/local/bin/bun
+  if [[ -L $bun_bin ]]; then
+    echo -e "${YELLOW}Replacing legacy Bun symlink $bun_bin...${NC}"
+    rm -f "$bun_bin"
   fi
 
-  echo -e "${GREEN}Bun version: v$(bun --version)${NC}"
+  echo -e "${GREEN}Installing Bun to /usr/local...${NC}"
+  # mktemp: unpredictable name, no symlink race on a fixed /tmp path
+  installer=$(mktemp)
+  curl -fsSL https://bun.sh/install -o "$installer"
+  BUN_INSTALL=/usr/local bash "$installer"
+  rm -f "$installer"
+
+  echo -e "${GREEN}Bun version: v$("$bun_bin" --version)${NC}"
+}
+
+# Creates the unprivileged bun-app system user the service runs as.
+# Its home is the systemd StateDirectory; no login shell.
+create_app_user() {
+  [[ -n "${SKIP_BUN_APP:-}" ]] && return
+
+  if id -u bun-app >/dev/null 2>&1; then
+    echo -e "${YELLOW}User bun-app already exists (skipping).${NC}"
+    return
+  fi
+
+  echo -e "${GREEN}Creating system user bun-app...${NC}"
+  useradd --system --user-group --home-dir /var/lib/bun-app \
+    --no-create-home --shell /usr/sbin/nologin bun-app
 }
 
 # Creates a minimal Bun app under /srv/app unless disabled.
@@ -232,6 +255,13 @@ create_systemd_service() {
   # Create systemd service file
   download_template "bun-app.service" /etc/systemd/system/bun-app.service
   replace_placeholder "/etc/systemd/system/bun-app.service" "__INSTANCE_ID__" "$INSTANCE_ID"
+
+  # Writable state lives in StateDirectory (/var/lib/bun-app); expose it
+  # as ./data. Never replace an existing data dir or link.
+  if [[ -d $APP_DIR && ! -e $APP_DIR/data && ! -L $APP_DIR/data ]]; then
+    ln -s /var/lib/bun-app "$APP_DIR/data"
+  fi
+
   systemctl daemon-reload
   systemctl enable bun-app >/dev/null 2>&1 || true
   # Start only if app folder exists
@@ -340,6 +370,7 @@ main() {
   configure_ufw
   install_certbot
   install_bun
+  create_app_user
   mkdir -p "$NGINX_ROOT"
   setup_sample_app
   configure_nginx
