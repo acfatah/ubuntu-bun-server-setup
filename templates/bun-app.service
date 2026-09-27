@@ -4,16 +4,47 @@ After=network.target
 
 [Service]
 Type=simple
+User=bun-app
+Group=bun-app
 WorkingDirectory=/srv/app
-ExecStart=/root/.bun/bin/bun run start
+ExecStart=/usr/local/bin/bun run start
 Restart=always
 RestartSec=3
-User=root
 Environment=NODE_ENV=production
 Environment=INSTANCE_ID=__INSTANCE_ID__
+Environment=XDG_CACHE_HOME=/var/cache/bun-app
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=bun-app
+
+# Writable dirs, created and chowned to User= by systemd.
+# /srv/app/data is a symlink to the state dir.
+StateDirectory=bun-app
+StateDirectoryMode=0750
+CacheDirectory=bun-app
+UMask=0027
+
+# Sandboxing. Score with: systemd-analyze security bun-app
+# Loosen per host with `systemctl edit bun-app` (drop-ins survive re-runs).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+# No MemoryDenyWriteExecute: Bun's JIT needs writable+executable memory.
 
 [Install]
 WantedBy=multi-user.target

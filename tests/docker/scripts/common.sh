@@ -50,4 +50,14 @@ assert_file_contains() {
   fi
 }
 
+assert_equals() {
+  local label=$1
+  local expected=$2
+  local actual=$3
+  if [[ "$actual" != "$expected" ]]; then
+    echo "${RED}Assertion failed:${NC} $label: expected '$expected', got '$actual'" >&2
+    exit 1
+  fi
+}
+
 require_root
