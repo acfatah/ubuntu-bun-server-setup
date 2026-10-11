@@ -133,4 +133,5 @@ Note a fresh `INSTANCE_ID` UUID is generated on every run.
   `GREEN`/`YELLOW`/`RED`/`NC`.
 - Commit prefixes seen in history: `fix(scope):`, `refactor:`, `ci:`,
   `release:`.
-- `plans/` and `.scratch/` hold local working notes; don't commit them.
+- `.claude/plans/` (plan links and completed copies) and `drafts/` hold
+  local working notes; don't commit them.
