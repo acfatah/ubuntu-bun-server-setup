@@ -7,10 +7,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/docker/scripts/common.sh
 . "$SCRIPT_DIR/common.sh"
 
+# shellcheck disable=SC2119 # default install: no env overrides
 run_installer
 
-echo -ne "${YELLOW}[test]${NC} nginx: "; systemctl is-enabled nginx
-echo -ne "${YELLOW}[test]${NC} bun-app: "; systemctl is-enabled bun-app
+echo -ne "${YELLOW}[test]${NC} nginx: "
+systemctl is-enabled nginx
+echo -ne "${YELLOW}[test]${NC} bun-app: "
+systemctl is-enabled bun-app
 systemctl is-active --quiet nginx
 systemctl is-active --quiet bun-app
 

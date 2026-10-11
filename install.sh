@@ -93,7 +93,7 @@ require_root() {
 # Verifies the host is Ubuntu by reading /etc/os-release.
 require_ubuntu() {
   if [[ -f /etc/os-release ]]; then
-    # shellcheck source=/etc/os-release
+    # shellcheck source=/dev/null
     . /etc/os-release
     if [[ ${ID:-} != "ubuntu" ]]; then
       echo -e "${RED}This script targets Ubuntu. Detected: ${ID:-unknown}.${NC}" >&2
@@ -300,7 +300,6 @@ write_application_info() {
   local info_dir="/var/lib/app-info"
   mkdir -p "$info_dir"
   local info_file="$info_dir/application.info"
-  local application_name="Bun.sh"
   local build_date
   build_date=$(date +%Y-%m-%d)
   local distro

@@ -13,16 +13,21 @@ files the installer drops onto the target host.
 ## Commands
 
 ```bash
-make lint     # shellcheck -x install.sh
-make format   # shfmt -w -i 2 -bn -ci install.sh
-make test     # all Docker e2e tests (needs Docker + privileged containers)
+make lint          # shellcheck every *.sh (install, release, tests, templates)
+make format        # shfmt -w; style comes from .editorconfig
+make format-check  # shfmt -d; fails on unformatted files
+make test          # all Docker e2e tests (needs Docker + privileged containers)
 tests/docker/run.sh test_default          # single test (.sh suffix optional)
 ./release.sh --dry-run minor              # preview a release
 ```
 
-- `make lint`/`make format` only cover `install.sh`. Lint other scripts
-  manually: `shellcheck -x tests/docker/**/*.sh templates/*.sh release.sh`.
-- `release.sh` uses 4-space indent; everything else follows shfmt 2-space.
+- Lint and format cover `install.sh`, `release.sh`, `tests/docker/**/*.sh`
+  and `templates/*.sh` (`SHELL_FILES` in `Makefile`).
+- Style lives in `.editorconfig` (2-space, `-bn -ci`); shfmt reads it only
+  when no printer flags are passed. `.shellcheckrc` sets
+  `external-sources=true`, so no `-x`.
+- `shellcheck` and `shfmt` must be on `PATH`, or pass an override, e.g.
+  `make lint SHELLCHECK='docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.10.0'`.
 
 ## Architecture
 
