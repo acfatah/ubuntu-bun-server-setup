@@ -54,6 +54,12 @@ To skip sample app:
 curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo bash -s -- SKIP_BUN_APP=1
 ```
 
+The same toggle also works as an environment variable:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo SKIP_BUN_APP=1 bash
+```
+
 Or after cloning this repository:
 
 ```bash
@@ -138,6 +144,10 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
 - `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks
   that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
   content.
+- `test_piped_install.sh` — pipes the installer into `bash -s --
+  SKIP_BUN_APP=1` the way the Quick Start does, checks the argument takes
+  effect, that no `BASH_SOURCE` error is printed, that remote templates are
+  used, and that unknown arguments are rejected.
 
 You can override the test image name with the `BUN_INSTALLER_TEST_IMAGE`
 environment variable if you want to reuse or inspect the image:
@@ -148,7 +158,8 @@ BUN_INSTALLER_TEST_IMAGE=my-registry/ubuntu-bun-installer-tests make test
 
 ## Environment toggles
 
-Set any to `1` to skip:
+Pass toggles as environment variables or as `KEY=VALUE` arguments to
+`install.sh`. Unknown arguments are rejected. Set any to `1` to skip:
 
 - `SKIP_BUN_APP=1` — Do not create sample `/srv/app` and use `/var/www/html` 
   for Nginx static root. 
@@ -160,6 +171,8 @@ Example:
 
 ```bash
 sudo SKIP_BUN_APP=1 bash install.sh
+# or
+sudo bash install.sh SKIP_BUN_APP=1
 ```
 
 ## Notes
