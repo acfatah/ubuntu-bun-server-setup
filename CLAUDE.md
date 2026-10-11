@@ -29,7 +29,8 @@ tests/docker/run.sh test_default          # single test (.sh suffix optional)
 ### Template resolution (`download_template` in `install.sh`)
 
 - If `templates/<name>` exists next to the script, it is copied (cloned-repo
-  or test run).
+  or test run). Only when run from a real file: a piped run has no
+  `BASH_SOURCE[0]`, so it never uses a local `templates/`.
 - Otherwise it is fetched from `TEMPLATE_BASE_URL`, which is pinned to
   **`main`** on GitHub (the `curl | sudo bash` path).
 - Gotcha: template edits on a branch are exercised by tests (repo mounted
@@ -69,7 +70,11 @@ systemd unit + `/srv/app/data` symlink → `/var/lib/app-info/application.info`
 
 ### `SKIP_BUN_APP` mode
 
+- Set as env var or `KEY=VALUE` arg (`parse_args`, allowlisted; unknown
+  args exit 1 before the root check).
 - Any **non-empty** value skips (even `SKIP_BUN_APP=0`); checks use `-n`.
+- `NGINX_ROOT` is chosen in `parse_args`, not at top level, so the arg form
+  takes effect.
 - Changes `NGINX_ROOT` from `/var/www/app/dist` to `/var/www/html`.
 - Skips sample app, systemd unit, **and** `nginx-default.conf`: Ubuntu's
   stock default site is left in place; only `index.html` is replaced.
@@ -101,7 +106,10 @@ Note a fresh `INSTANCE_ID` UUID is generated on every run.
   install, `curl` expects `"Hello Bun"` and `/api/` → `"Welcome to Bun"`,
   service runs as `bun-app`, code read-only, state dir writable),
   `test_skip_sample` (`SKIP_BUN_APP=1`, expects `"Hello World"`, no
-  `bun-app` user).
+  `bun-app` user), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
+  <install.sh`, remote templates from `main`, unknown-arg rejection).
+- Gotcha: files a test writes under `/tmp` during an install were gone by
+  assert time; `test_piped_install` keeps its files under `/root`.
 - Adding a test: create `scripts/test_x.sh` sourcing `common.sh`
   (`run_installer`, `assert_*` helpers) **and** register it in both the
   default `scripts` array and the `case` in `run.sh`, or it is rejected as

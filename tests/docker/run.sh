@@ -67,7 +67,7 @@ run_test() {
 }
 
 main() {
-  local scripts=("test_root_guard.sh" "test_default.sh" "test_skip_sample.sh")
+  local scripts=("test_root_guard.sh" "test_default.sh" "test_skip_sample.sh" "test_piped_install.sh")
   if [[ $# -gt 0 ]]; then
     scripts=()
     for arg in "$@"; do
@@ -90,6 +90,9 @@ main() {
         ;;
       test_skip_sample.sh)
         run_test "$script" "SKIP_BUN_APP install + idempotency"
+        ;;
+      test_piped_install.sh)
+        run_test "$script" "piped install with args"
         ;;
       *)
         echo "Unknown test script: $script" >&2

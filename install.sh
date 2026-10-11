@@ -8,11 +8,12 @@ set -euo pipefail
 # - Creates sandboxed systemd service bun-app (runs as user bun-app)
 # - Optionally configures UFW and writes application info + MOTD
 #
-# Environment toggles (set to 1 to skip):
+# Toggles (env var or KEY=VALUE argument; set to 1 to skip):
 #   SKIP_BUN_APP=1    -> skip creating /srv/app Bun app
 #
 # Usage:
-#   sudo bash install.sh
+#   sudo bash install.sh [SKIP_BUN_APP=1]
+#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1]
 # ==============================================================================
 
 APP_DIR=/srv/app
@@ -23,8 +24,12 @@ YELLOW=$(printf '\033[1;33m')
 RED=$(printf '\033[0;31m')
 NC=$(printf '\033[0m')
 TEMPLATE_BASE_URL="https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/refs/heads/main/templates"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEMPLATE_LOCAL_DIR="$SCRIPT_DIR/templates"
+# Local templates are used only when run from a file (clone or test), never
+# when piped, so a stray ./templates in cwd is never deployed.
+TEMPLATE_LOCAL_DIR=""
+if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
+  TEMPLATE_LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/templates"
+fi
 
 download_template() {
   local template_name="$1"
@@ -32,7 +37,7 @@ download_template() {
   mkdir -p "$(dirname "$dest_path")"
   local local_template="$TEMPLATE_LOCAL_DIR/$template_name"
 
-  if [[ -f "$local_template" ]]; then
+  if [[ -n $TEMPLATE_LOCAL_DIR && -f "$local_template" ]]; then
     echo -e "${YELLOW}Using local template for $template_name...${NC}"
     cp "$local_template" "$dest_path"
     return
@@ -53,12 +58,29 @@ replace_placeholder() {
   sed -i "s|$escaped_placeholder|$escaped_value|g" "$target_file"
 }
 
-if [ -n "${SKIP_BUN_APP:-}" ]; then
-  NGINX_ROOT=/var/www/html
-fi
-
 # Uniquely identifies this installation instance
 INSTANCE_ID=$(cat /proc/sys/kernel/random/uuid)
+
+# Applies KEY=VALUE arguments as toggles; only known keys are accepted.
+parse_args() {
+  local arg
+  for arg in "$@"; do
+    case $arg in
+      SKIP_BUN_APP=*)
+        SKIP_BUN_APP="${arg#*=}"
+        ;;
+      *)
+        echo -e "${RED}Unknown argument: $arg${NC}" >&2
+        echo "Usage: install.sh [SKIP_BUN_APP=1]" >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  if [[ -n "${SKIP_BUN_APP:-}" ]]; then
+    NGINX_ROOT=/var/www/html
+  fi
+}
 
 # Ensures the script is executed as root (UID 0).
 require_root() {
@@ -363,6 +385,7 @@ EOF
 
 main() {
   echo -e "${GREEN}Starting Ubuntu Bun installation script...${NC}"
+  parse_args "$@"
   require_root
   require_ubuntu
   apt_update_upgrade
