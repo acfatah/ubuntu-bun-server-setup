@@ -126,8 +126,10 @@ When adding new functionality, please:
 
 The project uses `shellcheck` for linting and `shfmt` for formatting:
 
-- Run `make lint` to check for linting issues
-- Run `make format` to automatically format the bash script
+- Run `make lint` to check every shell script for linting issues
+- Run `make format` to format every shell script in place
+- Run `make format-check` to list formatting differences without writing
+- Indentation and shfmt options come from `.editorconfig`
 
 ### Configuration
 
@@ -163,7 +165,7 @@ The project uses `shellcheck` for linting and `shfmt` for formatting:
 ```
 ubuntu-bun-installer/
 ├── install.sh                 # Main installation script
-├── makefile                   # Build and test automation
+├── Makefile                   # Build and test automation
 ├── README.md                  # Project documentation
 ├── CONTRIBUTING.md            # This file
 ├── LICENSE                    # License information
