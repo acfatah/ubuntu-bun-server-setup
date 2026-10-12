@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test: SKIP_BUN_APP install + idempotency
+# Test: SKIP_BUN_APP install + re-run
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,3 +18,15 @@ if id -u bun-app >/dev/null 2>&1; then
   echo "bun-app user must not exist with SKIP_BUN_APP" >&2
   exit 1
 fi
+
+# Skip mode keeps Ubuntu's stock site: the installer template never lands
+if grep -qF "# Managed by ubuntu-bun-server-setup." /etc/nginx/sites-available/default; then
+  echo "${RED}Assertion failed:${NC} skip mode installed the Bun site" >&2
+  exit 1
+fi
+
+# A re-run keeps the user's own index.html
+echo "<h1>My own site</h1>" >/var/www/html/index.html
+run_installer SKIP_BUN_APP=1
+assert_file_contains /var/log/bun-installer.log "Kept existing /var/www/html/index.html"
+curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "My own site"

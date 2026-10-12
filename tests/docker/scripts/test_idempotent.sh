@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Test: re-run keeps edits
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tests/docker/scripts/common.sh
+. "$SCRIPT_DIR/common.sh"
+
+edited_files=(
+  /etc/systemd/system/bun-app.service
+  /etc/nginx/sites-available/default
+  /etc/nginx/cloudflare-ip-filter.conf
+  /etc/nginx/cloudflare-update-ips.sh
+  /etc/update-motd.d/00-custom
+)
+
+# Only 1 skips; anything but empty/0/false/1 is rejected before any work
+echo -e "${YELLOW}[test]${NC} SKIP_BUN_APP=yes is rejected"
+if out=$(bash "$INSTALLER" SKIP_BUN_APP=yes 2>&1); then
+  echo "${RED}Assertion failed:${NC} SKIP_BUN_APP=yes was accepted" >&2
+  exit 1
+fi
+grep -q "Invalid SKIP_BUN_APP=yes" <<<"$out"
+
+# First run: SKIP_BUN_APP=0 installs the app
+run_installer SKIP_BUN_APP=0
+systemctl is-active --quiet bun-app
+curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "Hello Bun"
+
+instance_id=$(sed -n 's/^INSTANCE_ID=//p' /etc/environment)
+[[ -n $instance_id ]]
+
+# Simulate a host from an older version (duplicate line) and user edits
+echo "INSTANCE_ID=stale-duplicate" >>/etc/environment
+for file in "${edited_files[@]}"; do
+  echo "# user edit" >>"$file"
+done
+
+# Second run must keep all of it
+# shellcheck disable=SC2119 # default install: no env overrides
+run_installer
+
+assert_equals "INSTANCE_ID lines" 1 "$(grep -c '^INSTANCE_ID=' /etc/environment)"
+assert_file_contains /etc/environment "^INSTANCE_ID=${instance_id}\$"
+systemctl show -p Environment --value bun-app | grep -q "INSTANCE_ID=${instance_id}"
+for file in "${edited_files[@]}"; do
+  assert_file_contains "$file" "^# user edit\$"
+done
+assert_file_contains /var/log/bun-installer.log "Kept existing /etc/systemd/system/bun-app.service"
+
+nginx -t
+systemctl is-active --quiet nginx
+systemctl is-active --quiet bun-app
+curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "Hello Bun"
+
+# Ubuntu's MOTD scripts are diverted and stay away after a base-files
+# reinstall (which is what an upgrade does to them)
+for name in 00-header 10-help-text; do
+  dpkg-divert --list "/etc/update-motd.d/$name" | grep -q motd-disabled
+done
+DEBIAN_FRONTEND=noninteractive apt-get -qqy install --reinstall base-files >/dev/null
+for name in 00-header 10-help-text; do
+  if [[ -e /etc/update-motd.d/$name ]]; then
+    echo "${RED}Assertion failed:${NC} /etc/update-motd.d/$name came back" >&2
+    exit 1
+  fi
+done
+assert_file_exists /etc/update-motd.d/00-custom
