@@ -78,6 +78,12 @@ When done:
 - Sandbox score: `systemd-analyze security bun-app`.
 - Nginx default site: `http://<server-ip>` serving `/var/www/html`.
 - Get HTTPS cert for your Nginx site: `certbot --nginx`.
+- Installer log: `/var/log/bun-installer.log` (every run is appended).
+
+If a step fails, the installer stops, exits non-zero and prints
+`install failed at line N (<step>)`. If it completes but something is not
+running (Certbot, Nginx, `bun-app`), the summary lists it and the exit
+status is non-zero.
 
 ## Cloudflare IP updates (optional)
 

@@ -55,11 +55,27 @@ a token means editing both the template and the matching
 
 ### Install flow (`main`)
 
-root check → Ubuntu check → apt full-upgrade → base packages → UFW reset +
-rules → Certbot snap → Bun (`BUN_INSTALL=/usr/local` → `/usr/local/bin/bun`)
-→ `bun-app` system user → sample app → Nginx config + Cloudflare helpers →
-systemd unit + `/srv/app/data` symlink → `/var/lib/app-info/application.info`
-→ `INSTANCE_ID` appended to `/etc/environment` → MOTD → summary.
+Top level: `parse_args` → root check → `start_log` → `main 2>&1 | tee -a
+/var/log/bun-installer.log` (`pipefail` carries `main`'s status).
+
+`main`: ERR trap → Ubuntu check → apt full-upgrade → base packages → UFW
+reset + rules → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
+`/usr/local/bin/bun`) → `bun-app` system user → sample app → Nginx config +
+Cloudflare helpers → `nginx -t` → restart → systemd unit + `/srv/app/data`
+symlink → `/var/lib/app-info/application.info` → `INSTANCE_ID` appended to
+`/etc/environment` → MOTD → summary.
+
+### Failure handling
+
+- `set -Eeuo pipefail`; the ERR trap is set inside `main` (which runs in
+  the pipeline subshell), so it prints
+  `install failed at line N (<function>)` once.
+- No `|| true` on essential steps. Each remaining one is benign and says
+  why in a comment.
+- `print_summary` checks `certbot --version`, `nginx` and (unless skipped)
+  `bun-app` are active; it lists problems and returns 1, which `main`
+  turns into `exit 1` without tripping the trap.
+- Colours are empty unless stdout is a TTY (decided before the pipe).
 
 ### Service user and sandbox
 
@@ -117,7 +133,9 @@ Note a fresh `INSTANCE_ID` UUID is generated on every run.
   service runs as `bun-app`, code read-only, state dir writable),
   `test_skip_sample` (`SKIP_BUN_APP=1`, expects `"Hello World"`, no
   `bun-app` user), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
-  <install.sh`, remote templates from `main`, unknown-arg rejection).
+  <install.sh`, remote templates from `main`, unknown-arg rejection),
+  `test_fail_loudly` (broken `nginx-default.conf` in a copy of the repo
+  exits non-zero with the trap message, no colour escapes off-TTY).
 - Gotcha: files a test writes under `/tmp` during an install were gone by
   assert time; `test_piped_install` keeps its files under `/root`.
 - Adding a test: create `scripts/test_x.sh` sourcing `common.sh`
@@ -152,9 +170,9 @@ Note a fresh `INSTANCE_ID` UUID is generated on every run.
 
 ## Conventions
 
-- Scripts: `#!/usr/bin/env bash`, `set -euo pipefail`, one function per
-  install step with a leading comment, `local` vars, colored output via
-  `GREEN`/`YELLOW`/`RED`/`NC`.
+- Scripts: `#!/usr/bin/env bash`, `set -euo pipefail` (`-E` in
+  `install.sh`), one function per install step with a leading comment,
+  `local` vars, colored output via `GREEN`/`YELLOW`/`RED`/`NC`.
 - Commit prefixes seen in history: `fix(scope):`, `refactor:`, `ci:`,
   `release:`.
 - `.claude/plans/` (plan links and completed copies) and `drafts/` hold
