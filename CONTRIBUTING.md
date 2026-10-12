@@ -75,9 +75,17 @@ make test
 ```
 
 This will:
-- Build a test image from `tests/docker/Dockerfile`
+- Build a test image from `tests/docker/Dockerfile` (Ubuntu 22.04 by default)
 - Start short-lived, privileged containers mounting this repo read-only at `/workspace`
-- Execute the test scripts under `tests/docker/scripts/*.sh`
+- Execute every `tests/docker/scripts/test_*.sh` script
+
+To test against another Ubuntu release, set `UBUNTU_VERSION`:
+
+```bash
+UBUNTU_VERSION=24.04 make test
+```
+
+CI runs the same suite on both 22.04 and 24.04 for every pull request, plus `make lint`, `make format-check` and `make lint-actions`.
 
 ### Running Individual Tests
 
@@ -87,6 +95,7 @@ You can target a specific scenario by calling the test runner directly:
 tests/docker/run.sh test_root_guard
 tests/docker/run.sh test_default
 tests/docker/run.sh test_skip_sample
+tests/docker/run.sh test_piped_install
 ```
 
 The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
@@ -96,6 +105,7 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
 - `test_root_guard.sh` — ensures the installer fails when run as a non-root user
 - `test_default.sh` — runs a default install and verifies systemd units, application files, Nginx configuration, HTTP response (`"Hello Bun"`), and `certbot` availability
 - `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks that Nginx serves `/var/www/html` and returns the expected `"Hello World"` content
+- `test_piped_install.sh` — pipes the installer through `bash -s` with `SKIP_BUN_APP=1` as an argument, so templates are downloaded from `main`, and checks that unknown arguments are rejected
 
 You can override the test image name with the `BUN_INSTALLER_TEST_IMAGE` environment variable if you want to reuse or inspect the image:
 
@@ -106,9 +116,9 @@ BUN_INSTALLER_TEST_IMAGE=my-registry/ubuntu-bun-installer-tests make test
 ### Test Development
 
 When adding new functionality, please:
-1. Add appropriate test cases in the `tests/docker/scripts/` directory
-2. Follow the existing test patterns
-3. Ensure your tests run in the Docker-based test environment
+1. Add a `tests/docker/scripts/test_<name>.sh` script; the runner picks up every `test_*.sh` automatically
+2. Put a `# Test: <label>` line right after the shebang; the runner prints it as the test name
+3. Source `common.sh` for `run_installer` and the `assert_*` helpers, and follow the existing test patterns
 
 ## Code Style
 
@@ -164,6 +174,12 @@ The project uses `shellcheck` for linting and `shfmt` for formatting:
 
 ```
 ubuntu-bun-installer/
+├── .github/
+│   ├── dependabot.yml         # Weekly GitHub Actions updates
+│   └── workflows/
+│       ├── ci.yml             # Lint on every PR
+│       ├── e2e.yml            # Docker e2e tests (22.04/24.04)
+│       └── release.yml        # GitHub Release on v* tags
 ├── install.sh                 # Main installation script
 ├── Makefile                   # Build and test automation
 ├── README.md                  # Project documentation
@@ -185,6 +201,7 @@ ubuntu-bun-installer/
         └── scripts/           # Individual test scripts
             ├── common.sh      # Common test utilities
             ├── test_default.sh
+            ├── test_piped_install.sh
             ├── test_root_guard.sh
             └── test_skip_sample.sh
 ```

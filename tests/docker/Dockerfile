@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7
-FROM ubuntu:22.04
+ARG UBUNTU_VERSION=22.04
+FROM ubuntu:${UBUNTU_VERSION}
 
 ENV container=docker
 
@@ -30,6 +31,5 @@ ENV LANG=en_US.UTF-8 \
 
 RUN useradd --create-home --shell /bin/bash tester
 
-VOLUME [ "/sys/fs/cgroup" ]
 STOPSIGNAL SIGRTMIN+3
 CMD ["/lib/systemd/systemd"]

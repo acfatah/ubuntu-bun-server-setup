@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Test: SKIP_BUN_APP install + idempotency
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

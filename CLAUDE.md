@@ -16,7 +16,9 @@ files the installer drops onto the target host.
 make lint          # shellcheck every *.sh (install, release, tests, templates)
 make format        # shfmt -w; style comes from .editorconfig
 make format-check  # shfmt -d; fails on unformatted files
+make lint-actions  # actionlint on .github/workflows (shellchecks run: blocks)
 make test          # all Docker e2e tests (needs Docker + privileged containers)
+UBUNTU_VERSION=24.04 make test            # e2e on another Ubuntu (default 22.04)
 tests/docker/run.sh test_default          # single test (.sh suffix optional)
 ./release.sh --dry-run minor              # preview a release
 ```
@@ -26,8 +28,10 @@ tests/docker/run.sh test_default          # single test (.sh suffix optional)
 - Style lives in `.editorconfig` (2-space, `-bn -ci`); shfmt reads it only
   when no printer flags are passed. `.shellcheckrc` sets
   `external-sources=true`, so no `-x`.
-- `shellcheck` and `shfmt` must be on `PATH`, or pass an override, e.g.
-  `make lint SHELLCHECK='docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.10.0'`.
+- `shellcheck`, `shfmt` and `actionlint` must be on `PATH`, or pass an
+  override, e.g.
+  `make lint SHELLCHECK='docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.10.0'`
+  (`SHFMT`: `mvdan/shfmt:v3.8.0`; `ACTIONLINT`: `rhysd/actionlint:1.7.12`).
 
 ## Architecture
 
@@ -104,9 +108,10 @@ Note a fresh `INSTANCE_ID` UUID is generated on every run.
 
 ## Tests (`tests/docker/`)
 
-- `run.sh` builds an Ubuntu 22.04 systemd image, starts one privileged
-  container per test with the repo mounted read-only at `/workspace`, and
-  runs `tests/docker/scripts/<test>.sh` inside it.
+- `run.sh` builds an Ubuntu systemd image (`UBUNTU_VERSION`, default
+  `22.04`, passed as a build arg and used as the image tag), starts one
+  privileged container per test with the repo mounted read-only at
+  `/workspace`, and runs `tests/docker/scripts/<test>.sh` inside it.
 - Scenarios: `test_root_guard` (non-root fails), `test_default` (full
   install, `curl` expects `"Hello Bun"` and `/api/` → `"Welcome to Bun"`,
   service runs as `bun-app`, code read-only, state dir writable),
@@ -116,10 +121,24 @@ Note a fresh `INSTANCE_ID` UUID is generated on every run.
 - Gotcha: files a test writes under `/tmp` during an install were gone by
   assert time; `test_piped_install` keeps its files under `/root`.
 - Adding a test: create `scripts/test_x.sh` sourcing `common.sh`
-  (`run_installer`, `assert_*` helpers) **and** register it in both the
-  default `scripts` array and the `case` in `run.sh`, or it is rejected as
-  unknown.
-- Override image name with `BUN_INSTALLER_TEST_IMAGE`.
+  (`run_installer`, `assert_*` helpers), with a `# Test: <label>` line
+  right after the shebang. `run.sh` discovers every `scripts/test_*.sh`;
+  the label falls back to the file name.
+- Override image name (used verbatim, no version tag) with
+  `BUN_INSTALLER_TEST_IMAGE`.
+
+## CI (`.github/`)
+
+- `ci.yml`: on every PR and push to `main`, runs `make lint`,
+  `make format-check` and `make lint-actions`. Tools are sha256-verified
+  release binaries; versions and hashes live in the job's `env:` and are
+  bumped by hand (keep them in step with the Docker overrides above).
+- `e2e.yml`: `make test` on a 22.04/24.04 matrix; skipped when a change
+  touches only `**.md`, `LICENSE` or `.vscode/**`.
+- Both cancel superseded PR runs. Runners are pinned to `ubuntu-24.04`.
+- Actions are pinned to commit SHAs with a `# vX.Y.Z` comment;
+  `dependabot.yml` bumps those weekly, but not the tool versions or
+  `changelogithub`.
 
 ## Release
 
@@ -128,7 +147,7 @@ Note a fresh `INSTANCE_ID` UUID is generated on every run.
   `vX.Y.Z`, and **pushes the current branch and tag immediately**.
 - Run from `main` only: `.github/workflows/release.yml` fails if the tag is
   not an ancestor of `origin/main`; it then generates notes via
-  `changelogithub`.
+  `changelogithub` (pinned in the workflow).
 - `make release` has no args; it just runs `./release.sh` (interactive).
 
 ## Conventions

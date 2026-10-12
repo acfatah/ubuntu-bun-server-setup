@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Test: root guard
 set -euo pipefail
 
 RED=$(printf '\033[0;31m')
