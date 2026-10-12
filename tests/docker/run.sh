@@ -14,7 +14,8 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-IMAGE_NAME=${BUN_INSTALLER_TEST_IMAGE:-ubuntu-bun-installer/test-harness}
+UBUNTU_VERSION=${UBUNTU_VERSION:-22.04}
+IMAGE_NAME=${BUN_INSTALLER_TEST_IMAGE:-ubuntu-bun-installer/test-harness:${UBUNTU_VERSION}}
 
 cleanup_containers=()
 cleanup() {
@@ -25,8 +26,18 @@ cleanup() {
 trap cleanup EXIT
 
 build_image() {
-  echo -e "${YELLOW}[tests]${NC} Building Docker image '$IMAGE_NAME'..."
-  docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR"
+  echo -e "${YELLOW}[tests]${NC} Building Docker image '$IMAGE_NAME' (Ubuntu $UBUNTU_VERSION)..."
+  docker build -t "$IMAGE_NAME" \
+    --build-arg UBUNTU_VERSION="$UBUNTU_VERSION" \
+    -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR"
+}
+
+# Label from the script's "# Test: <label>" header, else its file name.
+test_label() {
+  local script=$1
+  local label
+  label=$(sed -n '/^# Test: /{s///p;q}' "$SCRIPT_DIR/scripts/$script")
+  echo "${label:-$script}"
 }
 
 start_container() {
@@ -67,38 +78,28 @@ run_test() {
 }
 
 main() {
-  local scripts=("test_root_guard.sh" "test_default.sh" "test_skip_sample.sh" "test_piped_install.sh")
+  local scripts=()
   if [[ $# -gt 0 ]]; then
-    scripts=()
+    local arg
     for arg in "$@"; do
-      if [[ $arg == *.sh ]]; then
-        scripts+=("$arg")
-      else
-        scripts+=("${arg}.sh")
+      [[ $arg == *.sh ]] || arg="${arg}.sh"
+      if [[ $arg != test_*.sh || ! -f "$SCRIPT_DIR/scripts/$arg" ]]; then
+        echo "Unknown test script: $arg" >&2
+        exit 1
       fi
+      scripts+=("$arg")
+    done
+  else
+    local path
+    for path in "$SCRIPT_DIR"/scripts/test_*.sh; do
+      scripts+=("${path##*/}")
     done
   fi
 
   build_image
+  local script
   for script in "${scripts[@]}"; do
-    case $script in
-      test_root_guard.sh)
-        run_test "$script" "root guard"
-        ;;
-      test_default.sh)
-        run_test "$script" "default install"
-        ;;
-      test_skip_sample.sh)
-        run_test "$script" "SKIP_BUN_APP install + idempotency"
-        ;;
-      test_piped_install.sh)
-        run_test "$script" "piped install with args"
-        ;;
-      *)
-        echo "Unknown test script: $script" >&2
-        exit 1
-        ;;
-    esac
+    run_test "$script" "$(test_label "$script")"
   done
 }
 

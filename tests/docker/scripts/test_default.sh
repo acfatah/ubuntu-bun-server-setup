@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Test: default install
 set -euo pipefail
 
 YELLOW=$(printf '\033[1;33m')
