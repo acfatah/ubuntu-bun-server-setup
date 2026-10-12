@@ -23,7 +23,9 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 - Configures UFW: allows SSH (22), HTTP (80), and HTTPS (443), limits SSH, and prefers 
   the 'Nginx Full' profile.
 - Optionally creates a sample Bun app at `/srv/app` and enables the bun-app service 
-  (set `SKIP_BUN_APP=1` to skip).
+  (set `SKIP_BUN_APP=1` to skip; Ubuntu's stock Nginx site is then kept).
+- Safe to re-run: files you may have edited are kept (see
+  [Re-running the installer](#re-running-the-installer)).
 - Intended for provisioning Ubuntu servers (22.04+); run as root/sudo with internet access.
 
 ## Prerequisites
@@ -84,6 +86,37 @@ If a step fails, the installer stops, exits non-zero and prints
 `install failed at line N (<step>)`. If it completes but something is not
 running (Certbot, Nginx, `bun-app`), the summary lists it and the exit
 status is non-zero.
+
+## Re-running the installer
+
+Re-running upgrades packages and Bun, and keeps what you changed. Each kept
+file is reported as `Kept existing <path>`:
+
+- `/etc/systemd/system/bun-app.service`.
+- `/etc/nginx/sites-available/default`, while its first line is the
+  `# Managed by ubuntu-bun-server-setup.` marker. Without the marker (for
+  example Ubuntu's stock site) the installer replaces it. In skip mode it
+  is never touched.
+- `/var/www/html/index.html` in skip mode.
+- `/etc/nginx/cloudflare-ip-filter.conf` and
+  `/etc/nginx/cloudflare-update-ips.sh`.
+- `/etc/update-motd.d/00-custom`.
+- `INSTANCE_ID` in `/etc/environment`: reused, kept to a single line.
+- The sample app, if `/srv/app/server.ts` exists.
+
+Because of this, template improvements in newer releases reach new installs
+only. To pick one up on an existing host, delete the file (or, for the
+Nginx site, its marker line) and re-run.
+
+The installer hides Ubuntu's MOTD header and help text with dpkg
+diversions, so package upgrades do not bring them back. Undo with:
+
+```bash
+for f in 00-header 10-help-text; do
+  sudo dpkg-divert --no-rename --remove /etc/update-motd.d/$f
+  sudo mv /var/lib/bun-installer/motd-disabled/$f /etc/update-motd.d/$f
+done
+```
 
 ## Cloudflare IP updates (optional)
 
@@ -187,8 +220,9 @@ libraries call it indirectly.
 
 ### Customising the sandbox
 
-Do not edit `/etc/systemd/system/bun-app.service` directly: re-running the
-installer overwrites it. Use a drop-in, which survives re-runs:
+Prefer a drop-in to editing `/etc/systemd/system/bun-app.service`. The
+installer keeps an existing unit on re-runs, but a drop-in keeps your
+changes apart from the installed defaults:
 
 ```bash
 sudo systemctl edit bun-app
@@ -274,6 +308,7 @@ You can target a specific scenario by calling the test runner directly:
 tests/docker/run.sh test_root_guard
 tests/docker/run.sh test_default
 tests/docker/run.sh test_skip_sample
+tests/docker/run.sh test_idempotent
 ```
 
 The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
@@ -288,7 +323,12 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   code / writable state dir, and `certbot` availability.
 - `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks
   that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
-  content.
+  content, that the stock Nginx site is kept, and that a re-run keeps a
+  custom `index.html`.
+- `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
+  `SKIP_BUN_APP=0`, edits installed files, re-runs, and checks the edits
+  survive, `INSTANCE_ID` stays a single stable line, and the MOTD
+  diversions outlast a `base-files` reinstall.
 - `test_piped_install.sh` — pipes the installer into `bash -s --
   SKIP_BUN_APP=1` the way the Quick Start does, checks the argument takes
   effect, that no `BASH_SOURCE` error is printed, that remote templates are
@@ -304,10 +344,12 @@ BUN_INSTALLER_TEST_IMAGE=my-registry/ubuntu-bun-installer-tests make test
 ## Environment toggles
 
 Pass toggles as environment variables or as `KEY=VALUE` arguments to
-`install.sh`. Unknown arguments are rejected. Set any to `1` to skip:
+`install.sh`. Unknown arguments are rejected. Only `1` skips; `0`, `false`
+or empty install as normal, and any other value is rejected:
 
 - `SKIP_BUN_APP=1` — Do not create sample `/srv/app` and use `/var/www/html` 
-  for Nginx static root. 
+  for Nginx static root. Ubuntu's stock Nginx site is kept as is: there is
+  no `/api/` proxy, no Bun fallback and no Cloudflare include line.
   You are now responsible for building/copying your own Bun-generated HTML assets into `/var/www/html`.
 
   Build steps typically look like `bun install && bun run build` from your project and then `cp -R dist/* /var/www/html` before managing your own Bun service.

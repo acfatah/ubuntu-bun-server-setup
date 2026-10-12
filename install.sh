@@ -66,8 +66,25 @@ replace_placeholder() {
   sed -i "s|$escaped_placeholder|$escaped_value|g" "$target_file"
 }
 
-# Uniquely identifies this installation instance
-INSTANCE_ID=$(cat /proc/sys/kernel/random/uuid)
+# Returns 0 (after a notice) if the path exists, so a re-run never
+# clobbers a file the user may have edited.
+keep_existing() {
+  [[ -e $1 ]] || return 1
+  echo -e "${YELLOW}Kept existing $1 (installer template not applied).${NC}"
+}
+
+# Uniquely identifies this installation instance; reused across re-runs
+INSTANCE_ID=""
+if [[ -f /etc/environment ]]; then
+  # First match only; sed alone, so pipefail can't trip on SIGPIPE
+  INSTANCE_ID=$(sed -n '/^INSTANCE_ID=/{s///p;q}' /etc/environment)
+fi
+INSTANCE_ID=${INSTANCE_ID:-$(cat /proc/sys/kernel/random/uuid)}
+
+# True when the sample app, its user and its unit are skipped.
+skip_app() {
+  [[ ${SKIP_BUN_APP:-} == 1 ]]
+}
 
 # Applies KEY=VALUE arguments as toggles; only known keys are accepted.
 parse_args() {
@@ -85,7 +102,17 @@ parse_args() {
     esac
   done
 
-  if [[ -n "${SKIP_BUN_APP:-}" ]]; then
+  # Env var or argument; a typo like "yes" must not silently install
+  case ${SKIP_BUN_APP:-} in
+    '' | 0 | false | 1) ;;
+    *)
+      echo -e "${RED}Invalid SKIP_BUN_APP=${SKIP_BUN_APP} (use 1 to skip)${NC}" >&2
+      echo "Usage: install.sh [SKIP_BUN_APP=1]" >&2
+      exit 1
+      ;;
+  esac
+
+  if skip_app; then
     NGINX_ROOT=/var/www/html
   fi
 }
@@ -201,7 +228,7 @@ install_bun() {
 # Creates the unprivileged bun-app system user the service runs as.
 # Its home is the systemd StateDirectory; no login shell.
 create_app_user() {
-  [[ -n "${SKIP_BUN_APP:-}" ]] && return
+  skip_app && return
 
   if id -u bun-app >/dev/null 2>&1; then
     echo -e "${YELLOW}User bun-app already exists (skipping).${NC}"
@@ -215,7 +242,7 @@ create_app_user() {
 
 # Creates a minimal Bun app under /srv/app unless disabled.
 setup_sample_app() {
-  [[ -n "${SKIP_BUN_APP:-}" ]] && return
+  skip_app && return
 
   mkdir -p "$APP_DIR"
   if [[ -f "$APP_DIR/server.ts" ]]; then
@@ -235,24 +262,43 @@ setup_sample_app() {
   find "$NGINX_ROOT" -type f -exec chmod 644 {} +
 }
 
-# Writes a static index page for the default Nginx site.
+# Writes a static index page for the default Nginx site, unless one
+# exists (stock Ubuntu ships only index.nginx-debian.html).
 write_default_nginx_index() {
+  if keep_existing "$NGINX_ROOT/index.html"; then
+    return
+  fi
   download_template "nginx-index-default.html" "$NGINX_ROOT/index.html"
 }
 
 # Writes the Bun reverse proxy configuration to the default Nginx site.
+# A site carrying the installer marker (line 1 of the template) is kept;
+# any other, such as Ubuntu's stock site, is replaced.
 write_bun_nginx_config() {
-  download_template "nginx-default.conf" /etc/nginx/sites-available/default
-  replace_placeholder "/etc/nginx/sites-available/default" "__NGINX_ROOT__" "$NGINX_ROOT"
+  local site=/etc/nginx/sites-available/default
+  local marker="# Managed by ubuntu-bun-server-setup."
+
+  if [[ -f $site ]] && grep -qF "$marker" "$site"; then
+    keep_existing "$site"
+    return
+  fi
+  if [[ -e $site ]]; then
+    echo -e "${YELLOW}Replacing $site (no installer marker).${NC}"
+  fi
+  download_template "nginx-default.conf" "$site"
+  replace_placeholder "$site" "__NGINX_ROOT__" "$NGINX_ROOT"
 }
 
-# Deploys the Cloudflare helper templates into the main Nginx directory.
+# Deploys the Cloudflare helper templates into the main Nginx directory,
+# keeping existing copies (the allowlist is regenerated in place).
 copy_cloudflare_templates() {
   echo -e "${GREEN}Copying Cloudflare helper files to /etc/nginx...${NC}"
   local nginx_dir="/etc/nginx"
 
   for template in cloudflare-ip-filter.conf cloudflare-update-ips.sh; do
-    download_template "$template" "$nginx_dir/$template"
+    if ! keep_existing "$nginx_dir/$template"; then
+      download_template "$template" "$nginx_dir/$template"
+    fi
   done
 
   chmod +x "$nginx_dir/cloudflare-update-ips.sh"
@@ -262,7 +308,7 @@ copy_cloudflare_templates() {
 configure_nginx() {
   echo -e "${GREEN}Configuring Nginx default site...${NC}"
 
-  if [[ -n "${SKIP_BUN_APP:-}" ]]; then
+  if skip_app; then
     write_default_nginx_index
   else
     mkdir -p /etc/nginx/sites-available
@@ -277,19 +323,18 @@ configure_nginx() {
   systemctl restart nginx
 }
 
-# Creates and enables systemd unit for the Bun app (bun-app).
-# Starts/restarts only if /srv/app exists. Idempotent: overwrite-safe.
-# Side effects: writes /etc/systemd/system/bun-app.service, daemon-reload, enable, (re)start.
+# Writes the bun-app systemd unit unless one exists, then enables it and
+# (re)starts it if /srv/app exists. Skipped with SKIP_BUN_APP=1.
 create_systemd_service() {
-  # Honors: SKIP_BUN_APP -> skip entirely. Idempotent: skips if dir exists.
-  [[ -n "${SKIP_BUN_APP:-}" ]] && return
+  local unit=/etc/systemd/system/bun-app.service
+  skip_app && return
 
   echo -e "${GREEN}Configuring systemd service bun-app...${NC}"
 
-  # File: /etc/systemd/system/bun-app.service
-  # Create systemd service file
-  download_template "bun-app.service" /etc/systemd/system/bun-app.service
-  replace_placeholder "/etc/systemd/system/bun-app.service" "__INSTANCE_ID__" "$INSTANCE_ID"
+  if ! keep_existing "$unit"; then
+    download_template "bun-app.service" "$unit"
+    replace_placeholder "$unit" "__INSTANCE_ID__" "$INSTANCE_ID"
+  fi
 
   # Writable state lives in StateDirectory (/var/lib/bun-app); expose it
   # as ./data. Never replace an existing data dir or link.
@@ -307,7 +352,7 @@ create_systemd_service() {
 
 # Emits build and environment metadata to /var/lib/app-info/application.info.
 # Values include distro info and Bun version if available.
-# Side effects: creates/overwrites metadata file.
+# Rewritten on every run: it records the latest install, not user data.
 write_application_info() {
   echo -e "${GREEN}Writing application metadata...${NC}"
   local info_dir="/var/lib/app-info"
@@ -335,31 +380,46 @@ write_application_info() {
   replace_placeholder "$info_file" "__APPLICATION_VERSION__" "$application_version"
 }
 
+# Records INSTANCE_ID in /etc/environment as exactly one line; also
+# collapses duplicates appended by older installer versions.
 write_instance_id() {
-  local INSTANCE_LINE
-
-  INSTANCE_LINE="INSTANCE_ID=${INSTANCE_ID}"
-  if ! grep -Fxq "$INSTANCE_LINE" /etc/environment; then
-    echo "$INSTANCE_LINE" | tee -a /etc/environment >/dev/null
-  fi
+  touch /etc/environment
+  sed -i '/^INSTANCE_ID=/d' /etc/environment
+  echo "INSTANCE_ID=${INSTANCE_ID}" >>/etc/environment
 }
 
-# Adds a helpful MOTD script under /etc/update-motd.d/00-custom.
-# Displays access info, common commands, and how to remove the MOTD.
-# Side effects: writes executable file used at login.
+# Moves Ubuntu's MOTD header and help text out of /etc/update-motd.d via
+# dpkg diversions, so base-files upgrades write there instead of
+# re-enabling them. Re-adding an existing diversion is a no-op.
+disable_stock_motd() {
+  local name src dest
+  local disabled_dir=/var/lib/bun-installer/motd-disabled
+
+  mkdir -p "$disabled_dir"
+  for name in 00-header 10-help-text; do
+    src=/etc/update-motd.d/$name
+    dest=$disabled_dir/$name
+    # --no-rename: --rename warns on files of Essential packages
+    dpkg-divert --quiet --local --no-rename --divert "$dest" --add "$src"
+    if [[ -e $src && ! -e $dest ]]; then
+      mv "$src" "$dest"
+    fi
+  done
+}
+
+# Adds a helpful MOTD script under /etc/update-motd.d/00-custom, unless
+# one exists. Displays access info and common commands.
 write_motd() {
   # Simple informative MOTD; does not expose passwords
   local motd=/etc/update-motd.d/00-custom
 
-  if [[ -d $motd ]]; then
-    echo -e "${YELLOW}MOTD script already exists: $motd (skipping).${NC}"
+  disable_stock_motd
+
+  if keep_existing "$motd"; then
     return
   fi
 
   echo -e "${GREEN}Creating MOTD entry at ${motd}...${NC}"
-
-  chmod -x /etc/update-motd.d/00-header
-  chmod -x /etc/update-motd.d/10-help-text
 
   download_template "motd.sh" "$motd"
   replace_placeholder "$motd" "__NGINX_ROOT__" "$NGINX_ROOT"
@@ -386,7 +446,7 @@ print_summary() {
   if ! systemctl is-active --quiet nginx; then
     problems+=("Nginx is not active; see: systemctl status nginx")
   fi
-  if [[ -z "${SKIP_BUN_APP:-}" ]]; then
+  if ! skip_app; then
     if systemctl is-active --quiet bun-app; then
       service_line=" * Service 'bun-app' is active. View logs: journalctl -u bun-app -f"
     else

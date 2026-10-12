@@ -96,6 +96,7 @@ tests/docker/run.sh test_root_guard
 tests/docker/run.sh test_default
 tests/docker/run.sh test_skip_sample
 tests/docker/run.sh test_piped_install
+tests/docker/run.sh test_idempotent
 ```
 
 The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
@@ -104,7 +105,8 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
 
 - `test_root_guard.sh` — ensures the installer fails when run as a non-root user
 - `test_default.sh` — runs a default install and verifies systemd units, application files, Nginx configuration, HTTP response (`"Hello Bun"`), and `certbot` availability
-- `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks that Nginx serves `/var/www/html` and returns the expected `"Hello World"` content
+- `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks that Nginx serves `/var/www/html` and returns the expected `"Hello World"` content, keeps the stock Nginx site, and keeps a custom `index.html` on a re-run
+- `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with `SKIP_BUN_APP=0`, edits installed files, re-runs, and checks the edits survive, `INSTANCE_ID` stays a single stable line, and the MOTD diversions outlast a `base-files` reinstall
 - `test_piped_install.sh` — pipes the installer through `bash -s` with `SKIP_BUN_APP=1` as an argument, so templates are downloaded from `main`, and checks that unknown arguments are rejected
 
 You can override the test image name with the `BUN_INSTALLER_TEST_IMAGE` environment variable if you want to reuse or inspect the image:

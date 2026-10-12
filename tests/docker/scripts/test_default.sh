@@ -23,6 +23,7 @@ assert_file_exists /srv/app/server.ts
 assert_file_exists /etc/systemd/system/bun-app.service
 assert_file_exists /var/lib/app-info/application.info
 assert_file_contains /etc/nginx/sites-available/default "root /var/www/app/dist"
+assert_file_contains /etc/nginx/sites-available/default "^# Managed by ubuntu-bun-server-setup\."
 
 curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "Hello Bun"
 

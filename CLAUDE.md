@@ -62,8 +62,8 @@ Top level: `parse_args` → root check → `start_log` → `main 2>&1 | tee -a
 reset + rules → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
 `/usr/local/bin/bun`) → `bun-app` system user → sample app → Nginx config +
 Cloudflare helpers → `nginx -t` → restart → systemd unit + `/srv/app/data`
-symlink → `/var/lib/app-info/application.info` → `INSTANCE_ID` appended to
-`/etc/environment` → MOTD → summary.
+symlink → `/var/lib/app-info/application.info` → `INSTANCE_ID` line
+rewritten in `/etc/environment` → MOTD → summary.
 
 ### Failure handling
 
@@ -91,18 +91,21 @@ symlink → `/var/lib/app-info/application.info` → `INSTANCE_ID` appended to
   (`runuser -u nobody`); a legacy symlink into `/root/.bun` is replaced.
   Gotcha: `setpriv --reuid=nobody <bin>` falsely succeeds for binaries
   under `/root`; don't use it for permission probes.
-- `create_app_user` and the data symlink are skipped with `SKIP_BUN_APP`.
+- `create_app_user` and the data symlink are skipped with `SKIP_BUN_APP=1`.
 
 ### `SKIP_BUN_APP` mode
 
 - Set as env var or `KEY=VALUE` arg (`parse_args`, allowlisted; unknown
   args exit 1 before the root check).
-- Any **non-empty** value skips (even `SKIP_BUN_APP=0`); checks use `-n`.
+- Only **`1`** skips; every check goes through `skip_app`. `parse_args`
+  accepts empty, `0`, `false` (install) and `1`; any other value exits 1
+  before the root check.
 - `NGINX_ROOT` is chosen in `parse_args`, not at top level, so the arg form
   takes effect.
 - Changes `NGINX_ROOT` from `/var/www/app/dist` to `/var/www/html`.
 - Skips sample app, systemd unit, **and** `nginx-default.conf`: Ubuntu's
-  stock default site is left in place; only `index.html` is replaced.
+  stock default site is left in place; only `index.html` is written, and
+  only if absent.
 - Cloudflare helper files are copied to `/etc/nginx` in both modes.
 
 ### Nginx (`templates/nginx-default.conf`)
@@ -117,10 +120,26 @@ symlink → `/var/lib/app-info/application.info` → `INSTANCE_ID` appended to
 
 ### Idempotency expectations
 
-Re-running must be safe: sample app skipped if `/srv/app/server.ts` exists,
-`INSTANCE_ID` line only appended if absent, UFW is `--force reset` every run,
-`bun-app` user and `/srv/app/data` only created if absent.
-Note a fresh `INSTANCE_ID` UUID is generated on every run.
+Re-running must be safe and never clobber user edits:
+
+- `keep_existing <path>` prints `Kept existing <path>` and skips the write.
+  Used for `bun-app.service`, skip-mode `index.html`, both Cloudflare
+  helper files and `00-custom` MOTD. Sample app skipped if
+  `/srv/app/server.ts` exists.
+- The Nginx default site is kept only if it carries the marker
+  `# Managed by ubuntu-bun-server-setup.` (line 1 of
+  `templates/nginx-default.conf`; keep it there). Ubuntu ships a stock
+  `default`, so plain skip-if-present would never install the proxy.
+- `INSTANCE_ID` is read from `/etc/environment` at top level (first match)
+  and reused; `write_instance_id` deletes every `INSTANCE_ID=` line and
+  appends one.
+- `disable_stock_motd` diverts `00-header` and `10-help-text` to
+  `/var/lib/bun-installer/motd-disabled/` (`dpkg-divert --no-rename` + `mv`:
+  `--rename` warns on Essential `base-files`). They are conffiles, so a
+  plain `chmod -x` survives a reinstall, likely not an upstream change.
+- `application.info` is rewritten every run; UFW is `--force reset` every
+  run; `bun-app` user and `/srv/app/data` only created if absent.
+- Consequence: template improvements reach new installs only.
 
 ## Tests (`tests/docker/`)
 
@@ -132,7 +151,10 @@ Note a fresh `INSTANCE_ID` UUID is generated on every run.
   install, `curl` expects `"Hello Bun"` and `/api/` → `"Welcome to Bun"`,
   service runs as `bun-app`, code read-only, state dir writable),
   `test_skip_sample` (`SKIP_BUN_APP=1`, expects `"Hello World"`, no
-  `bun-app` user), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
+  `bun-app` user, stock site kept, re-run keeps a custom `index.html`),
+  `test_idempotent` (`SKIP_BUN_APP=yes` rejected, `=0` installs, edits
+  survive a re-run, one stable `INSTANCE_ID`, MOTD diversions survive a
+  `base-files` reinstall), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
   <install.sh`, remote templates from `main`, unknown-arg rejection),
   `test_fail_loudly` (broken `nginx-default.conf` in a copy of the repo
   exits non-zero with the trap message, no colour escapes off-TTY).
