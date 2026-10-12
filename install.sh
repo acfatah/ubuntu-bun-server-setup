@@ -152,8 +152,10 @@ install_certbot() {
   apt-get -qqy remove certbot || true
   systemctl enable snapd >/dev/null 2>&1 || true
   systemctl start snapd || true
-  # Wait for snapd socket
+  # Wait for snapd socket, then for seeding: installs before it finish
+  # fail with "too early for operation"
   timeout 60 bash -c 'until snap list >/dev/null 2>&1; do sleep 2; done' || true
+  timeout 120 snap wait system seed.loaded || true
   snap install --classic certbot || true
   ln -sf /snap/bin/certbot /usr/bin/certbot
   snap set certbot trust-plugin-with-root=ok || true

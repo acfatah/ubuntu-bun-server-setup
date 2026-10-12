@@ -40,6 +40,8 @@ test_label() {
   echo "${label:-$script}"
 }
 
+# securityfs: on AppArmor hosts (GitHub runners) snapd's hooks fail
+# without it, so the certbot snap never installs.
 start_container() {
   local name=$1
   docker run -d --rm \
@@ -50,6 +52,7 @@ start_container() {
     --tmpfs /run \
     --tmpfs /run/lock \
     -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+    -v /sys/kernel/security:/sys/kernel/security \
     -v "$REPO_ROOT":/workspace:ro \
     "$IMAGE_NAME" >/dev/null
 }
