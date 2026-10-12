@@ -54,3 +54,10 @@ systemd-analyze security bun-app --no-pager | tail -1
 command -v certbot >/dev/null
 
 systemctl status bun-app --no-pager
+
+# Every run is logged; a non-TTY run carries no colour escapes (S9)
+assert_file_contains /var/log/bun-installer.log "Installation complete"
+if grep -q $'\033\\[' /var/log/bun-installer.log; then
+  echo "${RED}Assertion failed:${NC} installer log has colour escapes" >&2
+  exit 1
+fi

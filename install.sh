@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 # ==============================================================================
 # Ubuntu Bun installer
 # - Installs Nginx, UFW, Certbot (snap), Bun
 # - Sets up a simple Bun app under /srv/app
 # - Creates sandboxed systemd service bun-app (runs as user bun-app)
-# - Optionally configures UFW and writes application info + MOTD
+# - Configures UFW and writes application info + MOTD
+# - Exits non-zero on the first failing step; logs every run to
+#   /var/log/bun-installer.log
 #
 # Toggles (env var or KEY=VALUE argument; set to 1 to skip):
 #   SKIP_BUN_APP=1    -> skip creating /srv/app Bun app
@@ -18,11 +20,17 @@ set -euo pipefail
 
 APP_DIR=/srv/app
 NGINX_ROOT=/var/www/app/dist
+LOG_FILE=/var/log/bun-installer.log
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
-GREEN=$(printf '\033[0;32m')
-YELLOW=$(printf '\033[1;33m')
-RED=$(printf '\033[0;31m')
-NC=$(printf '\033[0m')
+# Colours only on a terminal; logs and CI output stay free of escapes
+if [[ -t 1 ]]; then
+  GREEN=$(printf '\033[0;32m')
+  YELLOW=$(printf '\033[1;33m')
+  RED=$(printf '\033[0;31m')
+  NC=$(printf '\033[0m')
+else
+  GREEN='' YELLOW='' RED='' NC=''
+fi
 TEMPLATE_BASE_URL="https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/refs/heads/main/templates"
 # Local templates are used only when run from a file (clone or test), never
 # when piped, so a stray ./templates in cwd is never deployed.
@@ -127,17 +135,18 @@ configure_ufw() {
 
   # Ensure profiles are loaded
   if ufw --version >/dev/null 2>&1; then
+    # Best effort: the rules below fail loudly if UFW is broken
     ufw --force reset >/dev/null 2>&1 || true
     ufw default deny incoming
     ufw default allow outgoing
-    ufw limit ssh || true
+    ufw limit ssh
 
     # Allow Nginx HTTP+HTTPS profile if available, otherwise explicit ports
     if ufw app list 2>/dev/null | grep -q "Nginx Full"; then
-      ufw allow 'Nginx Full' || true
+      ufw allow 'Nginx Full'
     else
-      ufw allow 80/tcp || true
-      ufw allow 443/tcp || true
+      ufw allow 80/tcp
+      ufw allow 443/tcp
     fi
 
     ufw --force enable
@@ -148,17 +157,17 @@ configure_ufw() {
 install_certbot() {
   echo -e "${GREEN}Installing Certbot (snap)...${NC}"
 
-  # Avoid older apt certbot
+  # Avoid older apt certbot; nothing to remove is fine
   apt-get -qqy remove certbot || true
-  systemctl enable snapd >/dev/null 2>&1 || true
-  systemctl start snapd || true
+  systemctl --quiet enable --now snapd
   # Wait for snapd socket, then for seeding: installs before it finish
-  # fail with "too early for operation"
+  # fail with "too early for operation". A timeout is not fatal here;
+  # snap install below fails loudly if snapd never gets ready.
   timeout 60 bash -c 'until snap list >/dev/null 2>&1; do sleep 2; done' || true
   timeout 120 snap wait system seed.loaded || true
-  snap install --classic certbot || true
+  snap install --classic certbot
   ln -sf /snap/bin/certbot /usr/bin/certbot
-  snap set certbot trust-plugin-with-root=ok || true
+  snap set certbot trust-plugin-with-root=ok
 }
 
 # Installs Bun system-wide to /usr/local/bin/bun so the unprivileged
@@ -246,7 +255,7 @@ copy_cloudflare_templates() {
     download_template "$template" "$nginx_dir/$template"
   done
 
-  chmod +x "$nginx_dir/cloudflare-update-ips.sh" || true
+  chmod +x "$nginx_dir/cloudflare-update-ips.sh"
 }
 
 # Configures Nginx defaults based on whether the Bun sample app is installed.
@@ -262,8 +271,10 @@ configure_nginx() {
 
   copy_cloudflare_templates
 
-  systemctl enable nginx >/dev/null 2>&1 || true
-  systemctl restart nginx || true
+  # Validate first: on a bad config the running Nginx keeps serving
+  nginx -t
+  systemctl --quiet enable nginx
+  systemctl restart nginx
 }
 
 # Creates and enables systemd unit for the Bun app (bun-app).
@@ -287,10 +298,10 @@ create_systemd_service() {
   fi
 
   systemctl daemon-reload
-  systemctl enable bun-app >/dev/null 2>&1 || true
-  # Start only if app folder exists
+  systemctl --quiet enable bun-app
+  # Start only if app folder exists; restart also starts a stopped unit
   if [[ -d $APP_DIR ]]; then
-    systemctl restart bun-app || systemctl start bun-app || true
+    systemctl restart bun-app
   fi
 }
 
@@ -356,19 +367,40 @@ write_motd() {
   chmod +x "$motd"
 }
 
-# Prints a concise summary of installed components and next steps.
-# Includes Bun path/version, Nginx presence, bun-app service status, and Certbot hint.
+# Prints a summary of installed components and next steps. Checks that
+# certbot runs and nginx (and bun-app unless skipped) are active; lists
+# anything missing and returns 1 if so.
 print_summary() {
-  local bun_path bun_ver nginx_ver service_line
+  local bun_path bun_ver nginx_ver service_line problem
+  local problems=()
 
   bun_path=$(command -v bun || echo "not found")
   bun_ver=$(bun --version 2>/dev/null || echo "unknown")
   nginx_ver=$(nginx -v 2>&1 || echo "not found")
+  service_line=""
 
-  if systemctl is-enabled bun-app >/dev/null 2>&1; then
-    service_line=" * Service 'bun-app' is enabled. View logs: journalctl -u bun-app -f"
-  else
-    service_line=""
+  # --version catches a dangling /usr/bin/certbot symlink
+  if ! certbot --version >/dev/null 2>&1; then
+    problems+=("Certbot does not run; see: snap list certbot")
+  fi
+  if ! systemctl is-active --quiet nginx; then
+    problems+=("Nginx is not active; see: systemctl status nginx")
+  fi
+  if [[ -z "${SKIP_BUN_APP:-}" ]]; then
+    if systemctl is-active --quiet bun-app; then
+      service_line=" * Service 'bun-app' is active. View logs: journalctl -u bun-app -f"
+    else
+      problems+=("Service 'bun-app' is not active; see: journalctl -u bun-app")
+    fi
+  fi
+
+  if [[ ${#problems[@]} -gt 0 ]]; then
+    echo -e "${RED}Installation finished with problems:${NC}"
+    for problem in "${problems[@]}"; do
+      echo " * $problem"
+    done
+    echo " * Log: $LOG_FILE"
+    return 1
   fi
 
   cat <<EOF
@@ -380,14 +412,25 @@ ${GREEN}Installation complete.${NC}
 ${service_line}
  * Certbot installed. To obtain a certificate for an Nginx site:
    certbot --nginx
+ * Log: ${LOG_FILE}
 
 EOF
 }
 
+# Opens the installer log (root:adm, 640) and appends a run header.
+start_log() {
+  touch "$LOG_FILE"
+  chown root:adm "$LOG_FILE"
+  chmod 640 "$LOG_FILE"
+  echo "=== bun-installer $(date -Is) args: ${*:-none} ===" >>"$LOG_FILE"
+}
+
+# Runs every install step. Runs in the tee pipeline's subshell, so the ERR
+# trap set here reports the failing line once and the parent stays quiet.
 main() {
+  trap 'echo -e "${RED}install failed at line $LINENO (${FUNCNAME[0]:-main})${NC}" >&2' ERR
+
   echo -e "${GREEN}Starting Ubuntu Bun installation script...${NC}"
-  parse_args "$@"
-  require_root
   require_ubuntu
   apt_update_upgrade
   install_base_packages
@@ -402,7 +445,12 @@ main() {
   write_application_info
   write_instance_id
   write_motd
-  print_summary
+  # A conditional, so the ERR trap stays quiet; the summary explains
+  print_summary || exit 1
 }
 
-main "$@"
+parse_args "$@"
+require_root
+start_log "$@"
+# pipefail carries main's exit status; tee is waited for, so no log loss
+main 2>&1 | tee -a "$LOG_FILE"
