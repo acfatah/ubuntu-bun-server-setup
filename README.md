@@ -19,9 +19,14 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
   [Security](#security)).
 - Installs Bun system-wide at `/usr/local/bin/bun`.
 - Configures Nginx as a reverse proxy to `localhost:3000` and serves static files 
-  from `/var/www/app/dist` (or `/var/www/html` if sample app is skipped).
-- Configures UFW: allows SSH (22), HTTP (80), and HTTPS (443), limits SSH, and prefers 
-  the 'Nginx Full' profile.
+  from `/var/www/app/dist` (or `/var/www/html` if sample app is skipped). The
+  sample app binds `127.0.0.1` only, so Bun is reachable just through Nginx.
+- Configures UFW: limits SSH on every port `sshd -T` reports (22 if sshd is
+  absent), allows HTTP (80) and HTTPS (443) via the 'Nginx Full' profile when
+  available. It never resets UFW: existing rules are kept, and the default
+  policy (deny incoming, allow outgoing) is set only while UFW is inactive.
+- Upgrades packages with `apt-get upgrade` (`FULL_UPGRADE=1` for
+  `full-upgrade`) and prints a reboot hint when one is required.
 - Optionally creates a sample Bun app at `/srv/app` and enables the bun-app service 
   (set `SKIP_BUN_APP=1` to skip; Ubuntu's stock Nginx site is then kept).
 - Safe to re-run: files you may have edited are kept (see
@@ -102,7 +107,13 @@ file is reported as `Kept existing <path>`:
   `/etc/nginx/cloudflare-update-ips.sh`.
 - `/etc/update-motd.d/00-custom`.
 - `INSTANCE_ID` in `/etc/environment`: reused, kept to a single line.
-- The sample app, if `/srv/app/server.ts` exists.
+- The sample app, if `/srv/app/server.ts` exists. Hosts installed before
+  0.3.0 keep a `server.ts` that listens on all interfaces; add
+  `hostname: "127.0.0.1"` to `Bun.serve` to match new installs.
+- UFW rules and the default policy. Rules are re-added only if missing, and
+  none is removed. If you later move sshd to another port, re-running limits
+  the new port, but the old rule stays; remove it yourself, for example
+  `sudo ufw delete limit 22/tcp`.
 
 Because of this, template improvements in newer releases reach new installs
 only. To pick one up on an existing host, delete the file (or, for the
@@ -309,6 +320,7 @@ tests/docker/run.sh test_root_guard
 tests/docker/run.sh test_default
 tests/docker/run.sh test_skip_sample
 tests/docker/run.sh test_idempotent
+tests/docker/run.sh test_host_safety
 ```
 
 The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
@@ -320,7 +332,8 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
 - `test_default.sh` — runs a default install and verifies systemd units,
   application files, Nginx configuration, HTTP response (`"Hello Bun"`),
   the `/api/` proxy to Bun, the non-root `bun-app` service user, read-only
-  code / writable state dir, and `certbot` availability.
+  code / writable state dir, Bun listening on `127.0.0.1:3000` only, port
+  22 limited when no sshd is installed, and `certbot` availability.
 - `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks
   that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
   content, that the stock Nginx site is kept, and that a re-run keeps a
@@ -333,6 +346,11 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   SKIP_BUN_APP=1` the way the Quick Start does, checks the argument takes
   effect, that no `BASH_SOURCE` error is printed, that remote templates are
   used, and that unknown arguments are rejected.
+- `test_host_safety.sh` — rejects `FULL_UPGRADE=yes`, installs
+  openssh-server on port 2222 and checks UFW limits `2222/tcp` (not 22) and
+  the default run uses `apt-get upgrade`. After adding a rule and changing
+  the default incoming policy, a `FULL_UPGRADE=1` re-run keeps both, uses
+  `full-upgrade`, prints the reboot hint, and adds no duplicate SSH rule.
 
 You can override the test image name with the `BUN_INSTALLER_TEST_IMAGE`
 environment variable if you want to reuse or inspect the image:
@@ -344,8 +362,8 @@ BUN_INSTALLER_TEST_IMAGE=my-registry/ubuntu-bun-installer-tests make test
 ## Environment toggles
 
 Pass toggles as environment variables or as `KEY=VALUE` arguments to
-`install.sh`. Unknown arguments are rejected. Only `1` skips; `0`, `false`
-or empty install as normal, and any other value is rejected:
+`install.sh`. Unknown arguments are rejected. Only `1` enables a toggle;
+`0`, `false` or empty leave it off, and any other value is rejected:
 
 - `SKIP_BUN_APP=1` — Do not create sample `/srv/app` and use `/var/www/html` 
   for Nginx static root. Ubuntu's stock Nginx site is kept as is: there is
@@ -354,12 +372,18 @@ or empty install as normal, and any other value is rejected:
 
   Build steps typically look like `bun install && bun run build` from your project and then `cp -R dist/* /var/www/html` before managing your own Bun service.
 
+- `FULL_UPGRADE=1` — Upgrade packages with `apt-get full-upgrade`, which
+  may remove packages and install new kernels. By default the installer runs
+  `apt-get upgrade`, which never removes packages. Either way, the summary
+  prints `Reboot required to finish package upgrades: sudo reboot` when
+  `/var/run/reboot-required` exists.
+
 Example:
 
 ```bash
 sudo SKIP_BUN_APP=1 bash install.sh
 # or
-sudo bash install.sh SKIP_BUN_APP=1
+sudo bash install.sh SKIP_BUN_APP=1 FULL_UPGRADE=1
 ```
 
 ## Notes
