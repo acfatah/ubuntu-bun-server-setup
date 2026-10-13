@@ -10,17 +10,19 @@ set -Eeuo pipefail
 # - Exits non-zero on the first failing step; logs every run to
 #   /var/log/bun-installer.log
 #
-# Toggles (env var or KEY=VALUE argument; set to 1 to skip):
+# Toggles (env var or KEY=VALUE argument; set to 1 to enable):
 #   SKIP_BUN_APP=1    -> skip creating /srv/app Bun app
+#   FULL_UPGRADE=1    -> apt-get full-upgrade instead of upgrade
 #
 # Usage:
-#   sudo bash install.sh [SKIP_BUN_APP=1]
-#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1]
+#   sudo bash install.sh [SKIP_BUN_APP=1] [FULL_UPGRADE=1]
+#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [FULL_UPGRADE=1]
 # ==============================================================================
 
 APP_DIR=/srv/app
 NGINX_ROOT=/var/www/app/dist
 LOG_FILE=/var/log/bun-installer.log
+USAGE="Usage: install.sh [SKIP_BUN_APP=1] [FULL_UPGRADE=1]"
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
 # Colours only on a terminal; logs and CI output stay free of escapes
 if [[ -t 1 ]]; then
@@ -86,31 +88,41 @@ skip_app() {
   [[ ${SKIP_BUN_APP:-} == 1 ]]
 }
 
+# True when packages are upgraded with full-upgrade instead of upgrade.
+full_upgrade() {
+  [[ ${FULL_UPGRADE:-} == 1 ]]
+}
+
 # Applies KEY=VALUE arguments as toggles; only known keys are accepted.
 parse_args() {
-  local arg
+  local arg name
   for arg in "$@"; do
     case $arg in
       SKIP_BUN_APP=*)
         SKIP_BUN_APP="${arg#*=}"
         ;;
+      FULL_UPGRADE=*)
+        FULL_UPGRADE="${arg#*=}"
+        ;;
       *)
         echo -e "${RED}Unknown argument: $arg${NC}" >&2
-        echo "Usage: install.sh [SKIP_BUN_APP=1]" >&2
+        echo "$USAGE" >&2
         exit 1
         ;;
     esac
   done
 
-  # Env var or argument; a typo like "yes" must not silently install
-  case ${SKIP_BUN_APP:-} in
-    '' | 0 | false | 1) ;;
-    *)
-      echo -e "${RED}Invalid SKIP_BUN_APP=${SKIP_BUN_APP} (use 1 to skip)${NC}" >&2
-      echo "Usage: install.sh [SKIP_BUN_APP=1]" >&2
-      exit 1
-      ;;
-  esac
+  # Env var or argument; a typo like "yes" must not silently fall back
+  for name in SKIP_BUN_APP FULL_UPGRADE; do
+    case ${!name:-} in
+      '' | 0 | false | 1) ;;
+      *)
+        echo -e "${RED}Invalid ${name}=${!name} (use 1 to enable)${NC}" >&2
+        echo "$USAGE" >&2
+        exit 1
+        ;;
+    esac
+  done
 
   if skip_app; then
     NGINX_ROOT=/var/www/html
@@ -140,13 +152,17 @@ require_ubuntu() {
   fi
 }
 
-# Updates APT metadata and performs a non-interactive full upgrade.
-# Uses --force-confdef/--force-confold to keep existing configs.
+# Updates APT metadata and upgrades packages non-interactively. Plain
+# upgrade by default (never removes packages); full-upgrade with
+# FULL_UPGRADE=1. --force-confdef/--force-confold keep existing configs.
 apt_update_upgrade() {
+  local mode=upgrade
+  full_upgrade && mode=full-upgrade
+
   export DEBIAN_FRONTEND=noninteractive
   apt-get -qqy update
-  # Keep existing configs if prompted
-  apt-get -qqy -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' full-upgrade
+  echo -e "${GREEN}Upgrading packages (apt-get ${mode})...${NC}"
+  apt-get -qqy -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' "$mode"
 }
 
 # Installs base packages needed by the stack.
@@ -155,18 +171,44 @@ install_base_packages() {
   apt-get -qqy install "${BASE_PACKAGES[@]}"
 }
 
-# Resets and configures UFW: deny incoming, allow outgoing, limit SSH, allow HTTP/HTTPS.
-# Prefers the 'Nginx Full' app profile when available.
-configure_ufw() {
-  echo -e "${GREEN}Configuring UFW (allow 'Nginx Full', limit ssh)...${NC}"
+# Prints the ports sshd listens on, one per line, from `sshd -T`. Falls
+# back to 22 with a notice when sshd is absent or its config unreadable.
+ssh_ports() {
+  local ports=""
 
-  # Ensure profiles are loaded
+  if command -v sshd >/dev/null 2>&1; then
+    # sshd -T needs this dir; socket-activated hosts may not have it yet
+    mkdir -p /run/sshd
+    # A failing sshd -T is handled below: empty output means fallback
+    ports=$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2}') || true
+  fi
+
+  if [[ -z $ports ]]; then
+    echo -e "${YELLOW}Could not read sshd ports (sshd -T); limiting SSH on port 22.${NC}" >&2
+    ports=22
+  fi
+  echo "$ports"
+}
+
+# Adds UFW rules without resetting: limit every sshd port, allow
+# HTTP/HTTPS (the 'Nginx Full' profile when available). The default
+# policy (deny incoming, allow outgoing) is set only while UFW is
+# inactive, so rules and policy changed since are kept on a re-run.
+configure_ufw() {
+  local port
+
+  echo -e "${GREEN}Configuring UFW (limit sshd port(s), allow 'Nginx Full'; existing rules kept)...${NC}"
+
   if ufw --version >/dev/null 2>&1; then
-    # Best effort: the rules below fail loudly if UFW is broken
-    ufw --force reset >/dev/null 2>&1 || true
-    ufw default deny incoming
-    ufw default allow outgoing
-    ufw limit ssh
+    # Captured first: grep -q in a pipe could SIGPIPE ufw under pipefail
+    if [[ $(ufw status) == "Status: inactive"* ]]; then
+      ufw default deny incoming
+      ufw default allow outgoing
+    fi
+
+    for port in $(ssh_ports); do
+      ufw limit "$port/tcp"
+    done
 
     # Allow Nginx HTTP+HTTPS profile if available, otherwise explicit ports
     if ufw app list 2>/dev/null | grep -q "Nginx Full"; then
@@ -431,7 +473,7 @@ write_motd() {
 # certbot runs and nginx (and bun-app unless skipped) are active; lists
 # anything missing and returns 1 if so.
 print_summary() {
-  local bun_path bun_ver nginx_ver service_line problem
+  local bun_path bun_ver nginx_ver service_line problem reboot_line=""
   local problems=()
 
   bun_path=$(command -v bun || echo "not found")
@@ -445,6 +487,9 @@ print_summary() {
   fi
   if ! systemctl is-active --quiet nginx; then
     problems+=("Nginx is not active; see: systemctl status nginx")
+  fi
+  if [[ -e /var/run/reboot-required ]]; then
+    reboot_line=" * Reboot required to finish package upgrades: sudo reboot"
   fi
   if ! skip_app; then
     if systemctl is-active --quiet bun-app; then
@@ -470,6 +515,7 @@ ${GREEN}Installation complete.${NC}
  * Bun: ${bun_path} (${bun_ver})
  * Nginx: ${nginx_ver}
 ${service_line}
+${reboot_line}
  * Certbot installed. To obtain a certificate for an Nginx site:
    certbot --nginx
  * Log: ${LOG_FILE}

@@ -48,6 +48,18 @@ main_pid=$(systemctl show -p MainPID --value bun-app)
 assert_equals "bun process owner" bun-app "$(stat -c %U "/proc/$main_pid")"
 assert_equals "bun-app restarts (crash loop?)" 0 "$(systemctl show -p NRestarts --value bun-app)"
 
+# Bun listens on loopback only; clients go through Nginx (S7)
+listeners=$(ss -Hltn 'sport = :3000' | awk '{print $4}')
+assert_equals "port 3000 listeners" "127.0.0.1:3000" "$listeners"
+host_ip=$(hostname -I | awk '{print $1}')
+if curl -fsS --max-time 3 "http://$host_ip:3000/" >/dev/null 2>&1; then
+  echo "${RED}Assertion failed:${NC} Bun reachable on $host_ip:3000" >&2
+  exit 1
+fi
+
+# No sshd in the image: the installer falls back to limiting 22 (S5)
+ufw status | grep -qE '^22/tcp +LIMIT'
+
 echo -ne "${YELLOW}[test]${NC} "
 systemd-analyze security bun-app --no-pager | tail -1
 
