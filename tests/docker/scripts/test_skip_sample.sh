@@ -31,6 +31,15 @@ for file in /etc/nginx/snippets/bun-proxy.conf /etc/nginx/conf.d/bun-connection-
   fi
 done
 
+# Cloudflare: real-IP config for every site, stock site left alone
+assert_file_exists /etc/nginx/conf.d/bun-cloudflare.conf
+assert_file_exists /etc/nginx/cloudflare/real-ip.conf
+if grep -q "cloudflare" /etc/nginx/sites-available/default; then
+  echo "${RED}Assertion failed:${NC} skip mode edited the stock site" >&2
+  exit 1
+fi
+assert_file_contains /var/log/bun-installer.log "Cloudflare: only the real client IP applies"
+
 # A re-run keeps the user's own index.html
 echo "<h1>My own site</h1>" >/var/www/html/index.html
 run_installer SKIP_BUN_APP=1

@@ -6,23 +6,25 @@ set -Eeuo pipefail
 # - Installs Nginx, UFW, Certbot (snap), Bun
 # - Sets up a simple Bun app under /srv/app
 # - Creates sandboxed systemd service bun-app (runs as user bun-app)
+# - Installs a Cloudflare IP updater with a daily timer (real client IP)
 # - Configures UFW and writes application info + MOTD
 # - Exits non-zero on the first failing step; logs every run to
 #   /var/log/bun-installer.log
 #
 # Toggles (env var or KEY=VALUE argument; set to 1 to enable):
 #   SKIP_BUN_APP=1    -> skip creating /srv/app Bun app
+#   SKIP_CLOUDFLARE=1 -> skip the Cloudflare IP updater and Nginx files
 #   FULL_UPGRADE=1    -> apt-get full-upgrade instead of upgrade
 #
 # Usage:
-#   sudo bash install.sh [SKIP_BUN_APP=1] [FULL_UPGRADE=1]
-#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [FULL_UPGRADE=1]
+#   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]
+#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]
 # ==============================================================================
 
 APP_DIR=/srv/app
 NGINX_ROOT=/var/www/app/dist
 LOG_FILE=/var/log/bun-installer.log
-USAGE="Usage: install.sh [SKIP_BUN_APP=1] [FULL_UPGRADE=1]"
+USAGE="Usage: install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]"
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
 # Colours only on a terminal; logs and CI output stay free of escapes
 if [[ -t 1 ]]; then
@@ -75,6 +77,16 @@ keep_existing() {
   echo -e "${YELLOW}Kept existing $1 (installer template not applied).${NC}"
 }
 
+# Writes each template:destination pair unless the destination exists.
+deploy_templates() {
+  local pair
+  for pair in "$@"; do
+    if ! keep_existing "${pair#*:}"; then
+      download_template "${pair%%:*}" "${pair#*:}"
+    fi
+  done
+}
+
 # Uniquely identifies this installation instance; reused across re-runs
 INSTANCE_ID=""
 if [[ -f /etc/environment ]]; then
@@ -86,6 +98,11 @@ INSTANCE_ID=${INSTANCE_ID:-$(cat /proc/sys/kernel/random/uuid)}
 # True when the sample app, its user and its unit are skipped.
 skip_app() {
   [[ ${SKIP_BUN_APP:-} == 1 ]]
+}
+
+# True when the Cloudflare updater, its timer and Nginx files are skipped.
+skip_cloudflare() {
+  [[ ${SKIP_CLOUDFLARE:-} == 1 ]]
 }
 
 # True when packages are upgraded with full-upgrade instead of upgrade.
@@ -101,6 +118,9 @@ parse_args() {
       SKIP_BUN_APP=*)
         SKIP_BUN_APP="${arg#*=}"
         ;;
+      SKIP_CLOUDFLARE=*)
+        SKIP_CLOUDFLARE="${arg#*=}"
+        ;;
       FULL_UPGRADE=*)
         FULL_UPGRADE="${arg#*=}"
         ;;
@@ -113,7 +133,7 @@ parse_args() {
   done
 
   # Env var or argument; a typo like "yes" must not silently fall back
-  for name in SKIP_BUN_APP FULL_UPGRADE; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE; do
     case ${!name:-} in
       '' | 0 | false | 1) ;;
       *)
@@ -331,39 +351,67 @@ write_bun_nginx_config() {
   replace_placeholder "$site" "__NGINX_ROOT__" "$NGINX_ROOT"
 }
 
-# Deploys the Cloudflare helper templates into the main Nginx directory,
-# keeping existing copies (the allowlist is regenerated in place).
-copy_cloudflare_templates() {
-  echo -e "${GREEN}Copying Cloudflare helper files to /etc/nginx...${NC}"
-  local nginx_dir="/etc/nginx"
+# True when Nginx still includes the old helper's cloudflare-ip-filter.conf
+# (allow <ranges>; deny all). With real client IP on, deny all would
+# block every visitor, so conf.d/bun-cloudflare.conf must wait.
+old_cloudflare_filter_active() {
+  # -R follows the sites-enabled symlinks; -s hides missing paths
+  grep -RqsE '^[[:space:]]*include[[:space:]]+(/etc/nginx/)?cloudflare-ip-filter\.conf' \
+    /etc/nginx/nginx.conf /etc/nginx/conf.d /etc/nginx/sites-enabled
+}
 
-  for template in cloudflare-ip-filter.conf cloudflare-update-ips.sh; do
-    if ! keep_existing "$nginx_dir/$template"; then
-      download_template "$template" "$nginx_dir/$template"
-    fi
-  done
+# Installs the Cloudflare IP updater with its daily timer, fetches the
+# lists once if missing, and deploys the Nginx files that use them: real
+# client IP for every site (conf.d) and an optional 403 rule (snippet).
+# Keeps existing copies; the generated lists belong to the updater.
+# Skipped with SKIP_CLOUDFLARE=1; a failed first fetch fails the install.
+install_cloudflare() {
+  local updater=/usr/local/sbin/cloudflare-update-ips
+  local lists=/etc/nginx/cloudflare
+  skip_cloudflare && return
 
-  chmod +x "$nginx_dir/cloudflare-update-ips.sh"
+  echo -e "${GREEN}Installing Cloudflare IP updater and timer...${NC}"
+
+  deploy_templates \
+    "cloudflare-update-ips.sh:$updater" \
+    cloudflare-update-ips.service:/etc/systemd/system/cloudflare-update-ips.service \
+    cloudflare-update-ips.timer:/etc/systemd/system/cloudflare-update-ips.timer
+  chmod 755 "$updater"
+
+  # Nginx is restarted by configure_nginx, so the updater must not reload
+  if [[ ! -f $lists/real-ip.conf || ! -f $lists/edge-ips.conf ]]; then
+    "$updater" --no-reload
+  fi
+
+  if old_cloudflare_filter_active && [[ ! -e /etc/nginx/conf.d/bun-cloudflare.conf ]]; then
+    echo -e "${YELLOW}Cloudflare: Nginx still includes cloudflare-ip-filter.conf; real client IP not enabled (see README, Upgrading from 0.4.x).${NC}"
+  else
+    deploy_templates nginx-cloudflare.conf:/etc/nginx/conf.d/bun-cloudflare.conf
+  fi
+  deploy_templates nginx-cloudflare-only.conf:/etc/nginx/snippets/cloudflare-only.conf
+
+  systemctl daemon-reload
+  systemctl --quiet enable --now cloudflare-update-ips.timer
+
+  if skip_app; then
+    echo -e "${YELLOW}Cloudflare: only the real client IP applies; the stock site has no cloudflare-only include.${NC}"
+  fi
 }
 
 # Deploys the Bun proxy snippet and its Connection-header map, which the
 # default site includes, keeping existing copies.
 write_nginx_proxy_files() {
-  local pair template dest
-
-  for pair in \
+  deploy_templates \
     nginx-bun-proxy.conf:/etc/nginx/snippets/bun-proxy.conf \
-    nginx-connection-upgrade.conf:/etc/nginx/conf.d/bun-connection-upgrade.conf; do
-    template=${pair%%:*}
-    dest=${pair#*:}
-    if ! keep_existing "$dest"; then
-      download_template "$template" "$dest"
-    fi
-  done
+    nginx-connection-upgrade.conf:/etc/nginx/conf.d/bun-connection-upgrade.conf
 }
 
 # Configures Nginx defaults based on whether the Bun sample app is installed.
 configure_nginx() {
+  # First, so the updater's nginx -t checks its lists against the config
+  # already in place; errors in the new site surface at nginx -t below
+  install_cloudflare
+
   echo -e "${GREEN}Configuring Nginx default site...${NC}"
 
   if skip_app; then
@@ -373,8 +421,6 @@ configure_nginx() {
     write_nginx_proxy_files
     write_bun_nginx_config
   fi
-
-  copy_cloudflare_templates
 
   # Validate first: on a bad config the running Nginx keeps serving
   nginx -t
