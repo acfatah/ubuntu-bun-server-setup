@@ -45,11 +45,14 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 
 ## Software Included
 
-| Software    | Version     | License |
-| ---         | ---         | ---     |
-| [Bun][1]    | [1.3.x][2]  | [MIT][3] |
-| [Nginx][4]  | [1.24.x][5] | [Artistic License 2.0][6] |
-| [Certbot][7]    | [5.1.x][8]  | [Apache 2 on GitHub][9] |
+| Software     | Version | Source | License |
+| ---          | ---     | ---    | ---     |
+| [Bun][1]     | [1.4.x][2] | Official installer (latest) | [MIT][3] |
+| [Nginx][4]   | [1.18.x][5] (22.04), [1.24.x][10] (24.04) | Ubuntu apt | [BSD-2-Clause][6] |
+| [Certbot][7] | [5.8.x][8] | Snap (latest) | [Apache 2.0][9] |
+
+Checked 2026-10-25. Bun and Certbot install their latest release, so new
+hosts may get a newer version; Nginx follows the Ubuntu release.
 
 ## Quick Start
 
@@ -617,11 +620,12 @@ sudo bash install.sh SKIP_CLOUDFLARE=1
 [2]: https://github.com/oven-sh/bun/releases
 [3]: https://github.com/oven-sh/bun/blob/main/LICENSE
 [4]: https://nginx.org
-[5]: https://packages.ubuntu.com/focal/nginx
-[6]: https://www.npmjs.com/policies/npm-license
+[5]: https://packages.ubuntu.com/jammy/nginx
+[6]: https://nginx.org/LICENSE
 [7]: https://certbot.eff.org/pages/about
 [8]: https://github.com/certbot/certbot/releases
 [9]: https://github.com/certbot/certbot/blob/master/LICENSE.txt
+[10]: https://packages.ubuntu.com/noble/nginx
 
 [21]: https://cloud.digitalocean.com/login
 [22]: https://letsencrypt.org
