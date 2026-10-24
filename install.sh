@@ -346,6 +346,22 @@ copy_cloudflare_templates() {
   chmod +x "$nginx_dir/cloudflare-update-ips.sh"
 }
 
+# Deploys the Bun proxy snippet and its Connection-header map, which the
+# default site includes, keeping existing copies.
+write_nginx_proxy_files() {
+  local pair template dest
+
+  for pair in \
+    nginx-bun-proxy.conf:/etc/nginx/snippets/bun-proxy.conf \
+    nginx-connection-upgrade.conf:/etc/nginx/conf.d/bun-connection-upgrade.conf; do
+    template=${pair%%:*}
+    dest=${pair#*:}
+    if ! keep_existing "$dest"; then
+      download_template "$template" "$dest"
+    fi
+  done
+}
+
 # Configures Nginx defaults based on whether the Bun sample app is installed.
 configure_nginx() {
   echo -e "${GREEN}Configuring Nginx default site...${NC}"
@@ -354,6 +370,7 @@ configure_nginx() {
     write_default_nginx_index
   else
     mkdir -p /etc/nginx/sites-available
+    write_nginx_proxy_files
     write_bun_nginx_config
   fi
 
@@ -365,8 +382,22 @@ configure_nginx() {
   systemctl restart nginx
 }
 
-# Writes the bun-app systemd unit unless one exists, then enables it and
-# (re)starts it if /srv/app exists. Skipped with SKIP_BUN_APP=1.
+# Writes /etc/bun-app.env (INSTANCE_ID, PORT) for the unit's
+# EnvironmentFile, unless one exists. Root-only: users add secrets here.
+write_app_env() {
+  local env_file=/etc/bun-app.env
+
+  if keep_existing "$env_file"; then
+    return
+  fi
+  download_template "bun-app.env" "$env_file"
+  chmod 600 "$env_file"
+  replace_placeholder "$env_file" "__INSTANCE_ID__" "$INSTANCE_ID"
+}
+
+# Writes the bun-app systemd unit and its environment file unless they
+# exist, then enables the unit and (re)starts it if /srv/app exists.
+# Skipped with SKIP_BUN_APP=1.
 create_systemd_service() {
   local unit=/etc/systemd/system/bun-app.service
   skip_app && return
@@ -375,8 +406,8 @@ create_systemd_service() {
 
   if ! keep_existing "$unit"; then
     download_template "bun-app.service" "$unit"
-    replace_placeholder "$unit" "__INSTANCE_ID__" "$INSTANCE_ID"
   fi
+  write_app_env
 
   # Writable state lives in StateDirectory (/var/lib/bun-app); expose it
   # as ./data. Never replace an existing data dir or link.

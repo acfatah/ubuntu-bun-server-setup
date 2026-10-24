@@ -4,7 +4,6 @@
   "description": "Hello from bun!",
   "main": "server.ts",
   "scripts": {
-    "start": "bun run server.ts",
-    "restart": "systemctl restart bun-app"
+    "start": "bun run server.ts"
   }
 }

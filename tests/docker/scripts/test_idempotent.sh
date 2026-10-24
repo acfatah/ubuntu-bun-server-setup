@@ -8,7 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 edited_files=(
   /etc/systemd/system/bun-app.service
+  /etc/bun-app.env
   /etc/nginx/sites-available/default
+  /etc/nginx/snippets/bun-proxy.conf
+  /etc/nginx/conf.d/bun-connection-upgrade.conf
   /etc/nginx/cloudflare-ip-filter.conf
   /etc/nginx/cloudflare-update-ips.sh
   /etc/update-motd.d/00-custom
@@ -42,7 +45,9 @@ run_installer
 
 assert_equals "INSTANCE_ID lines" 1 "$(grep -c '^INSTANCE_ID=' /etc/environment)"
 assert_file_contains /etc/environment "^INSTANCE_ID=${instance_id}\$"
-systemctl show -p Environment --value bun-app | grep -q "INSTANCE_ID=${instance_id}"
+assert_file_contains /etc/bun-app.env "^INSTANCE_ID=${instance_id}\$"
+main_pid=$(systemctl show -p MainPID --value bun-app)
+tr '\0' '\n' <"/proc/$main_pid/environ" | grep -qx "INSTANCE_ID=${instance_id}"
 for file in "${edited_files[@]}"; do
   assert_file_contains "$file" "^# user edit\$"
 done
