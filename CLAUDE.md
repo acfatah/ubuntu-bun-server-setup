@@ -58,8 +58,8 @@ a token means editing both the template and the matching
 Top level: `parse_args` → root check → `start_log` → `main 2>&1 | tee -a
 /var/log/bun-installer.log` (`pipefail` carries `main`'s status).
 
-`main`: ERR trap → Ubuntu check → apt full-upgrade → base packages → UFW
-reset + rules → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
+`main`: ERR trap → Ubuntu check → `apt-get upgrade` (`full-upgrade` with
+`FULL_UPGRADE=1`) → base packages → UFW rules (no reset) → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
 `/usr/local/bin/bun`) → `bun-app` system user → sample app → Nginx config +
 Cloudflare helpers → `nginx -t` → restart → systemd unit + `/srv/app/data`
 symlink → `/var/lib/app-info/application.info` → `INSTANCE_ID` line
@@ -93,13 +93,20 @@ rewritten in `/etc/environment` → MOTD → summary.
   under `/root`; don't use it for permission probes.
 - `create_app_user` and the data symlink are skipped with `SKIP_BUN_APP=1`.
 
-### `SKIP_BUN_APP` mode
+### Toggles (`SKIP_BUN_APP`, `FULL_UPGRADE`)
 
 - Set as env var or `KEY=VALUE` arg (`parse_args`, allowlisted; unknown
   args exit 1 before the root check).
-- Only **`1`** skips; every check goes through `skip_app`. `parse_args`
-  accepts empty, `0`, `false` (install) and `1`; any other value exits 1
-  before the root check.
+- Only **`1`** enables; checks go through `skip_app` / `full_upgrade`.
+  `parse_args` accepts empty, `0`, `false` (off) and `1` for both; any
+  other value exits 1 with `Invalid <NAME>=<value>` before the root check.
+  Adding a toggle means extending both loops in `parse_args` and `USAGE`.
+- `FULL_UPGRADE=1` swaps `apt-get upgrade` for `full-upgrade`. The summary
+  prints a reboot hint when `/var/run/reboot-required` exists (a note, not
+  a problem: the return value is unchanged).
+
+### `SKIP_BUN_APP` mode
+
 - `NGINX_ROOT` is chosen in `parse_args`, not at top level, so the arg form
   takes effect.
 - Changes `NGINX_ROOT` from `/var/www/app/dist` to `/var/www/html`.
@@ -109,6 +116,9 @@ rewritten in `/etc/environment` → MOTD → summary.
 - Cloudflare helper files are copied to `/etc/nginx` in both modes.
 
 ### Nginx (`templates/nginx-default.conf`)
+
+- `templates/server.ts` binds `127.0.0.1` and reads `PORT` (default 3000);
+  only Nginx reaches it.
 
 - `/` serves static files, falls back to `@bun` → `127.0.0.1:3000`.
 - `/api/` proxies with trailing-slash `proxy_pass`, so the `/api` prefix is
@@ -137,8 +147,13 @@ Re-running must be safe and never clobber user edits:
   `/var/lib/bun-installer/motd-disabled/` (`dpkg-divert --no-rename` + `mv`:
   `--rename` warns on Essential `base-files`). They are conffiles, so a
   plain `chmod -x` survives a reinstall, likely not an upstream change.
-- `application.info` is rewritten every run; UFW is `--force reset` every
-  run; `bun-app` user and `/srv/app/data` only created if absent.
+- `application.info` is rewritten every run; `bun-app` user and
+  `/srv/app/data` only created if absent.
+- UFW is never reset. Default policy is set only while `ufw status` is
+  `inactive`; rules are re-added (an existing one is skipped, exit 0) and
+  none removed. `ssh_ports` limits every `port` from `sshd -T` (creates
+  `/run/sshd` first: socket-activated 24.04 hosts lack it), falling back
+  to 22 with a notice.
 - Consequence: template improvements reach new installs only.
 
 ## Tests (`tests/docker/`)
@@ -149,7 +164,8 @@ Re-running must be safe and never clobber user edits:
   `/workspace`, and runs `tests/docker/scripts/<test>.sh` inside it.
 - Scenarios: `test_root_guard` (non-root fails), `test_default` (full
   install, `curl` expects `"Hello Bun"` and `/api/` → `"Welcome to Bun"`,
-  service runs as `bun-app`, code read-only, state dir writable),
+  service runs as `bun-app`, code read-only, state dir writable, Bun only
+  on `127.0.0.1:3000`, `22/tcp` limited without sshd),
   `test_skip_sample` (`SKIP_BUN_APP=1`, expects `"Hello World"`, no
   `bun-app` user, stock site kept, re-run keeps a custom `index.html`),
   `test_idempotent` (`SKIP_BUN_APP=yes` rejected, `=0` installs, edits
@@ -157,7 +173,10 @@ Re-running must be safe and never clobber user edits:
   `base-files` reinstall), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
   <install.sh`, remote templates from `main`, unknown-arg rejection),
   `test_fail_loudly` (broken `nginx-default.conf` in a copy of the repo
-  exits non-zero with the trap message, no colour escapes off-TTY).
+  exits non-zero with the trap message, no colour escapes off-TTY),
+  `test_host_safety` (`FULL_UPGRADE=yes` rejected, openssh-server on port
+  2222 → `2222/tcp` limited and no `22/tcp`; extra rule and `allow`
+  incoming policy survive a `FULL_UPGRADE=1` re-run; reboot hint).
 - Gotcha: files a test writes under `/tmp` during an install were gone by
   assert time; `test_piped_install` keeps its files under `/root`.
 - Adding a test: create `scripts/test_x.sh` sourcing `common.sh`
