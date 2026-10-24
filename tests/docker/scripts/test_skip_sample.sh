@@ -24,6 +24,12 @@ if grep -qF "# Managed by ubuntu-bun-server-setup." /etc/nginx/sites-available/d
   echo "${RED}Assertion failed:${NC} skip mode installed the Bun site" >&2
   exit 1
 fi
+for file in /etc/nginx/snippets/bun-proxy.conf /etc/nginx/conf.d/bun-connection-upgrade.conf; do
+  if [[ -e $file ]]; then
+    echo "${RED}Assertion failed:${NC} skip mode installed $file" >&2
+    exit 1
+  fi
+done
 
 # A re-run keeps the user's own index.html
 echo "<h1>My own site</h1>" >/var/www/html/index.html

@@ -97,12 +97,15 @@ status is non-zero.
 Re-running upgrades packages and Bun, and keeps what you changed. Each kept
 file is reported as `Kept existing <path>`:
 
-- `/etc/systemd/system/bun-app.service`.
+- `/etc/systemd/system/bun-app.service` and `/etc/bun-app.env`.
 - `/etc/nginx/sites-available/default`, while its first line is the
   `# Managed by ubuntu-bun-server-setup.` marker. Without the marker (for
   example Ubuntu's stock site) the installer replaces it. In skip mode it
   is never touched.
 - `/var/www/html/index.html` in skip mode.
+- `/etc/nginx/snippets/bun-proxy.conf` and
+  `/etc/nginx/conf.d/bun-connection-upgrade.conf` (not installed in skip
+  mode).
 - `/etc/nginx/cloudflare-ip-filter.conf` and
   `/etc/nginx/cloudflare-update-ips.sh`.
 - `/etc/update-motd.d/00-custom`.
@@ -118,6 +121,21 @@ file is reported as `Kept existing <path>`:
 Because of this, template improvements in newer releases reach new installs
 only. To pick one up on an existing host, delete the file (or, for the
 Nginx site, its marker line) and re-run.
+
+### Upgrading from 0.3.x
+
+- **`/api/` keeps its prefix.** Nginx now passes `/api/x` to Bun as
+  `/api/x`, as the `@bun` fallback always did. Before, it arrived as `/x`.
+  An app that routes `/x` for `/api/x` must route `/api/x` instead, once
+  the new Nginx site is in place.
+- **Existing hosts keep their old files.** The old site still strips the
+  prefix, and the old unit still sets `Environment=INSTANCE_ID=...`.
+- **To adopt the new templates,** delete the marker line of
+  `/etc/nginx/sites-available/default` and delete
+  `/etc/systemd/system/bun-app.service` (move your changes to a drop-in
+  first), then re-run. A re-run on an old host also installs the proxy
+  snippet, the map file and `/etc/bun-app.env`; they stay unused until the
+  site and unit that use them are replaced.
 
 The installer hides Ubuntu's MOTD header and help text with dpkg
 diversions, so package upgrades do not bring them back. Undo with:
@@ -164,6 +182,20 @@ non-root users can execute it. Hosts provisioned by older versions of this
 installer had `/usr/local/bin/bun` symlinked into `/root/.bun`, which
 `bun-app` cannot read; re-running the installer replaces that symlink with a
 real binary. `/root/.bun` is left in place and can be removed manually.
+
+### Environment file
+
+The unit reads `/etc/bun-app.env` (`EnvironmentFile=`), which holds
+`INSTANCE_ID` and `PORT=3000`:
+
+- **Root-only (`0600`).** systemd reads it as root, so the app gets the
+  values but `bun-app` cannot read the file. Put secrets here, not in
+  `/srv/app`.
+- **Apply edits** with `sudo systemctl restart bun-app`. Re-runs keep the
+  file.
+- **A `PORT` change** must be mirrored in `proxy_pass` in
+  `/etc/nginx/snippets/bun-proxy.conf`, then `sudo nginx -t && sudo
+  systemctl reload nginx`.
 
 ### Filesystem layout
 
@@ -331,16 +363,20 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   user.
 - `test_default.sh` — runs a default install and verifies systemd units,
   application files, Nginx configuration, HTTP response (`"Hello Bun"`),
-  the `/api/` proxy to Bun, the non-root `bun-app` service user, read-only
+  the `/api/` proxy to Bun (prefix kept), security headers, a single
+  `Cache-Control` on `/assets/`, a `Connection: upgrade` header sent only
+  for upgrade requests, the root-only `/etc/bun-app.env`, the non-root `bun-app` service user, read-only
   code / writable state dir, Bun listening on `127.0.0.1:3000` only, port
   22 limited when no sshd is installed, and `certbot` availability.
 - `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks
   that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
-  content, that the stock Nginx site is kept, and that a re-run keeps a
+  content, that the stock Nginx site is kept and no proxy snippet or map
+  file is installed, and that a re-run keeps a
   custom `index.html`.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
   `SKIP_BUN_APP=0`, edits installed files, re-runs, and checks the edits
-  survive, `INSTANCE_ID` stays a single stable line, and the MOTD
+  survive, `INSTANCE_ID` stays a single stable line (also in
+  `/etc/bun-app.env` and the process environment), and the MOTD
   diversions outlast a `base-files` reinstall.
 - `test_piped_install.sh` — pipes the installer into `bash -s --
   SKIP_BUN_APP=1` the way the Quick Start does, checks the argument takes
@@ -399,7 +435,9 @@ sudo bash install.sh SKIP_BUN_APP=1 FULL_UPGRADE=1
   sudo find /var/www/app/dist -type f -exec chmod 644 {} +
   ```
 
-- Static files are served at `/` and API is proxied to Bun at `/api`.
+- Static files are served at `/`; anything not found falls back to Bun.
+  `/api/` always goes to Bun with the full URI (`/api/x` arrives as
+  `/api/x`). Both share `/etc/nginx/snippets/bun-proxy.conf`.
 - To use your own Bun app, replace `/srv/app` contents (keep the `data`
   symlink). Change `ExecStart` or other settings with
   `sudo systemctl edit bun-app` rather than editing the unit file (see
@@ -413,7 +451,8 @@ sudo bash install.sh SKIP_BUN_APP=1 FULL_UPGRADE=1
   ```ini
   [Unit]
   Description=Bun App
-  After=network.target
+  Wants=network-online.target
+  After=network-online.target
 
   [Service]
   Type=simple
@@ -424,8 +463,9 @@ sudo bash install.sh SKIP_BUN_APP=1 FULL_UPGRADE=1
   Restart=always
   RestartSec=3
   Environment=NODE_ENV=production
-  Environment=INSTANCE_ID=<uuid>
   Environment=XDG_CACHE_HOME=/var/cache/bun-app
+  # INSTANCE_ID, PORT and any secrets; root-only, kept on re-run
+  EnvironmentFile=-/etc/bun-app.env
   StandardOutput=journal
   StandardError=journal
   SyslogIdentifier=bun-app

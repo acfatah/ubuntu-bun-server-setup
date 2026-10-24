@@ -1,6 +1,7 @@
 [Unit]
 Description=Bun App
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
@@ -11,8 +12,9 @@ ExecStart=/usr/local/bin/bun run start
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
-Environment=INSTANCE_ID=__INSTANCE_ID__
 Environment=XDG_CACHE_HOME=/var/cache/bun-app
+# INSTANCE_ID, PORT and any secrets; root-only, kept on re-run
+EnvironmentFile=-/etc/bun-app.env
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=bun-app

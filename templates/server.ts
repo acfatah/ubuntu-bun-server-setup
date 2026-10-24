@@ -11,6 +11,14 @@ const server = Bun.serve({
       });
     }
 
+    // Nginx passes the full URI, so API routes keep their /api prefix
+    if (path.startsWith("/api/")) {
+      return Response.json({
+        message: "Welcome to Bun!",
+        path
+      });
+    }
+
     return new Response("Page not found", { status: 404 });
   }
 });

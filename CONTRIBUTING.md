@@ -105,8 +105,8 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
 ### Test Scenarios
 
 - `test_root_guard.sh` — ensures the installer fails when run as a non-root user
-- `test_default.sh` — runs a default install and verifies systemd units, application files, Nginx configuration, HTTP response (`"Hello Bun"`), Bun listening on `127.0.0.1` only, port 22 limited when no sshd is installed, and `certbot` availability
-- `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks that Nginx serves `/var/www/html` and returns the expected `"Hello World"` content, keeps the stock Nginx site, and keeps a custom `index.html` on a re-run
+- `test_default.sh` — runs a default install and verifies systemd units, application files, Nginx configuration, HTTP response (`"Hello Bun"`), `/api/x` reaching Bun with its prefix, security and cache headers, the WebSocket `Connection` header sent only on upgrade requests, the root-only `/etc/bun-app.env`, Bun listening on `127.0.0.1` only, port 22 limited when no sshd is installed, and `certbot` availability
+- `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks that Nginx serves `/var/www/html` and returns the expected `"Hello World"` content, keeps the stock Nginx site without the proxy snippet or map file, and keeps a custom `index.html` on a re-run
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with `SKIP_BUN_APP=0`, edits installed files, re-runs, and checks the edits survive, `INSTANCE_ID` stays a single stable line, and the MOTD diversions outlast a `base-files` reinstall
 - `test_piped_install.sh` — pipes the installer through `bash -s` with `SKIP_BUN_APP=1` as an argument, so templates are downloaded from `main`, and checks that unknown arguments are rejected
 - `test_host_safety.sh` — rejects `FULL_UPGRADE=yes`, runs sshd on port 2222 and checks UFW limits `2222/tcp` instead of 22 with `apt-get upgrade`, then checks a `FULL_UPGRADE=1` re-run keeps an added rule and a changed default policy, and prints the reboot hint
@@ -191,8 +191,11 @@ ubuntu-bun-installer/
 ├── LICENSE                    # License information
 ├── templates/                 # Template files for config generation
 │   ├── application.info       # Application metadata template
+│   ├── bun-app.env            # Service environment file template
 │   ├── bun-app.service        # Systemd service template
 │   ├── motd.sh                # MOTD script template
+│   ├── nginx-bun-proxy.conf   # Nginx proxy snippet for Bun
+│   ├── nginx-connection-upgrade.conf # Nginx WebSocket Connection map
 │   ├── nginx-default.conf     # Nginx configuration template
 │   ├── nginx-index-default.html # Default Nginx index template
 │   ├── nginx-index-sample.html # Sample app index template
