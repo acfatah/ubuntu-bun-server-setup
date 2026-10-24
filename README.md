@@ -27,6 +27,10 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
   policy (deny incoming, allow outgoing) is set only while UFW is inactive.
 - Upgrades packages with `apt-get upgrade` (`FULL_UPGRADE=1` for
   `full-upgrade`) and prints a reboot hint when one is required.
+- Installs a Cloudflare IP updater with a daily systemd timer, so Nginx logs
+  the real client IP behind Cloudflare and can optionally refuse requests
+  that bypass it (set `SKIP_CLOUDFLARE=1` to skip; see
+  [Cloudflare](#cloudflare)).
 - Optionally creates a sample Bun app at `/srv/app` and enables the bun-app service 
   (set `SKIP_BUN_APP=1` to skip; Ubuntu's stock Nginx site is then kept).
 - Safe to re-run: files you may have edited are kept (see
@@ -106,8 +110,11 @@ file is reported as `Kept existing <path>`:
 - `/etc/nginx/snippets/bun-proxy.conf` and
   `/etc/nginx/conf.d/bun-connection-upgrade.conf` (not installed in skip
   mode).
-- `/etc/nginx/cloudflare-ip-filter.conf` and
-  `/etc/nginx/cloudflare-update-ips.sh`.
+- The Cloudflare updater, its service and timer units,
+  `/etc/nginx/conf.d/bun-cloudflare.conf` and
+  `/etc/nginx/snippets/cloudflare-only.conf`. The generated lists under
+  `/etc/nginx/cloudflare/` belong to the updater; the installer fetches them
+  only when missing.
 - `/etc/update-motd.d/00-custom`.
 - `INSTANCE_ID` in `/etc/environment`: reused, kept to a single line.
 - The sample app, if `/srv/app/server.ts` exists. Hosts installed before
@@ -137,6 +144,24 @@ Nginx site, its marker line) and re-run.
   snippet, the map file and `/etc/bun-app.env`; they stay unused until the
   site and unit that use them are replaced.
 
+### Upgrading from 0.4.x
+
+- **The old Cloudflare helper is left alone.** Hosts installed before keep
+  `/etc/nginx/cloudflare-update-ips.sh`, `/etc/nginx/cloudflare-ip-filter.conf`
+  and any cron line that runs the script. A re-run adds the new updater,
+  timer and Nginx files beside them, and real client IP takes effect.
+- **Gotcha: an active old filter holds back real client IP.** With real
+  client IP on, the old `deny all` would see visitor addresses and block
+  everyone. So while any Nginx config still includes
+  `cloudflare-ip-filter.conf`, a re-run skips
+  `/etc/nginx/conf.d/bun-cloudflare.conf` and prints a notice.
+- **To retire the old helper,** remove its line with `sudo crontab -e`.
+  If your site includes `cloudflare-ip-filter.conf`, replace that line with
+  `include snippets/cloudflare-only.conf;` to keep blocking (see
+  [Cloudflare](#cloudflare)), or delete it. Then delete both old files and
+  re-run the installer before reloading Nginx: it adds `bun-cloudflare.conf`,
+  which the new include needs, and restarts Nginx.
+
 The installer hides Ubuntu's MOTD header and help text with dpkg
 diversions, so package upgrades do not bring them back. Undo with:
 
@@ -147,27 +172,96 @@ for f in 00-header 10-help-text; do
 done
 ```
 
-## Cloudflare IP updates (optional)
+## Cloudflare
 
-The [templates/cloudflare-update-ips.sh](templates/cloudflare-update-ips.sh)
-  script downloads Cloudflare's IPv4 and IPv6 ranges, converts each line into an `allow`
-  directive, and rewrites `/etc/nginx/cloudflare-ip-filter.conf` before reloading Nginx.
+Installed by default; `SKIP_CLOUDFLARE=1` leaves it out. It keeps Nginx in
+step with Cloudflare's published IP ranges:
 
-The nginx default config already ships with the include commented out. To enable
-this feature, uncomment the `include cloudflare-ip-filter.conf;` line in the server
-block to apply the allowlist to the default host.
+| Path | What it is |
+|---|---|
+| `/usr/local/sbin/cloudflare-update-ips` | Updater script (kept on re-run) |
+| `/etc/systemd/system/cloudflare-update-ips.{service,timer}` | Daily timer (kept on re-run) |
+| `/etc/nginx/cloudflare/real-ip.conf`, `edge-ips.conf` | Generated lists; never edit |
+| `/etc/nginx/conf.d/bun-cloudflare.conf` | Real client IP + `$bun_cloudflare_edge` geo (kept) |
+| `/etc/nginx/snippets/cloudflare-only.conf` | Optional 403 rule (kept) |
 
-If you need the rules applied globally, place the include in the `http { ... }` block
-of `/etc/nginx/nginx.conf` instead, so every server block inherits it.
+The installer fetches the lists once; if that fetch fails, the install
+fails.
 
-Schedule the script with cron (runs as root so it can reload Nginx) by using `crontab -e`;
-for example, adding the following line:
+### Real client IP (on)
 
+Behind Cloudflare, every connection comes from a Cloudflare edge, so
+`$remote_addr` and the access log would show Cloudflare, not the visitor.
+`bun-cloudflare.conf` restores the visitor's address from the
+`CF-Connecting-IP` header, for every site. The header is trusted only on
+connections from Cloudflare's ranges, so a client cannot forge it by
+connecting directly, and a host not behind Cloudflare sees no change.
+
+### Cloudflare only (off)
+
+To answer 403 to every request that bypasses Cloudflare, uncomment this line
+in the server block of `/etc/nginx/sites-available/default`:
+
+```nginx
+include snippets/cloudflare-only.conf;
 ```
-1 2 * * * /etc/nginx/cloudflare-update-ips.sh
+
+Then run `sudo nginx -t && sudo systemctl reload nginx`. The rule checks the
+connecting address (`$realip_remote_addr`), not the restored client IP.
+
+- **Gotcha: it locks out direct access.** Requests to the server's IP, from
+  the host itself, or from monitors and health checks that skip Cloudflare
+  all get 403. Make sure the DNS records are proxied (orange cloud) first.
+- In skip mode, Ubuntu's stock site has no such line; add it yourself to
+  any server block.
+
+### Updates
+
+`cloudflare-update-ips.timer` runs the updater daily (randomised by up to an
+hour, caught up after downtime). Each run:
+
+1. Fetches `https://www.cloudflare.com/ips-v4` and `ips-v6`.
+2. Rejects the whole fetch if any line is not a CIDR, if a family is empty,
+   or if there are fewer than 8 ranges. Nginx would even try to resolve a
+   hostname in `set_real_ip_from`, so nothing else gets through.
+3. Exits without a reload if nothing changed.
+4. Swaps the new files in, runs `nginx -t`, and puts the old files back if
+   it fails.
+5. Reloads Nginx when it is running.
+
+A failed run leaves Nginx and the current lists untouched. Check runs with:
+
+```bash
+systemctl list-timers cloudflare-update-ips.timer
+journalctl -u cloudflare-update-ips
+sudo cloudflare-update-ips              # run now
 ```
 
-This runs shortly after 2:00 AM every day to keep Cloudflare's allowlist current. The script logs warnings to `/var/log/cloudflare-update-ips.log` if it can’t download enough addresses.
+To use a mirror or a pinned copy instead of Cloudflare, set
+`CLOUDFLARE_IPS_SOURCE` to a directory holding `ips-v4` and `ips-v6`: on the
+command line, or for the timer with
+`sudo systemctl edit cloudflare-update-ips.service`:
+
+```ini
+[Service]
+Environment=CLOUDFLARE_IPS_SOURCE=/srv/cloudflare-ips
+```
+
+### Removing it
+
+Remove the `cloudflare-only.conf` include from any site first, then:
+
+```bash
+sudo systemctl disable --now cloudflare-update-ips.timer
+sudo rm /etc/systemd/system/cloudflare-update-ips.{service,timer} \
+  /usr/local/sbin/cloudflare-update-ips \
+  /etc/nginx/conf.d/bun-cloudflare.conf /etc/nginx/snippets/cloudflare-only.conf
+sudo rm -r /etc/nginx/cloudflare
+sudo systemctl daemon-reload
+```
+
+Then run `sudo nginx -t && sudo systemctl reload nginx`. Pass
+`SKIP_CLOUDFLARE=1` on later re-runs, or the installer puts it back.
 
 ## Security
 
@@ -371,15 +465,16 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
 - `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks
   that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
   content, that the stock Nginx site is kept and no proxy snippet or map
-  file is installed, and that a re-run keeps a
-  custom `index.html`.
+  file is installed, that the Cloudflare real-IP config is installed with
+  the stock site untouched, and that a re-run keeps a custom `index.html`.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
   `SKIP_BUN_APP=0`, edits installed files, re-runs, and checks the edits
   survive, `INSTANCE_ID` stays a single stable line (also in
   `/etc/bun-app.env` and the process environment), and the MOTD
   diversions outlast a `base-files` reinstall.
 - `test_piped_install.sh` — pipes the installer into `bash -s --
-  SKIP_BUN_APP=1` the way the Quick Start does, checks the argument takes
+  SKIP_BUN_APP=1 SKIP_CLOUDFLARE=1` the way the Quick Start does (the
+  Cloudflare templates may not be on `main` yet), checks the arguments take
   effect, that no `BASH_SOURCE` error is printed, that remote templates are
   used, and that unknown arguments are rejected.
 - `test_host_safety.sh` — rejects `FULL_UPGRADE=yes`, installs
@@ -387,6 +482,15 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   the default run uses `apt-get upgrade`. After adding a rule and changing
   the default incoming policy, a `FULL_UPGRADE=1` re-run keeps both, uses
   `full-upgrade`, prints the reboot hint, and adds no duplicate SSH rule.
+- `test_cloudflare.sh` — rejects `SKIP_CLOUDFLARE=yes`, checks the updater,
+  enabled timer, generated lists and geo after a default install. Against a
+  stubbed source (`CLOUDFLARE_IPS_SOURCE`), an HTML body, a junk line, a
+  short list, an empty family, and a list `nginx -t` refuses all fail and
+  leave the lists and Nginx unchanged; a good list applies, a repeat run
+  reports `unchanged`, the access log shows the `CF-Connecting-IP` address,
+  and the `cloudflare-only.conf` include answers 200 from an edge and 403
+  otherwise. A re-run on a host whose site still includes the old
+  `cloudflare-ip-filter.conf` does not enable real client IP.
 
 You can override the test image name with the `BUN_INSTALLER_TEST_IMAGE`
 environment variable if you want to reuse or inspect the image:
@@ -403,10 +507,15 @@ Pass toggles as environment variables or as `KEY=VALUE` arguments to
 
 - `SKIP_BUN_APP=1` — Do not create sample `/srv/app` and use `/var/www/html` 
   for Nginx static root. Ubuntu's stock Nginx site is kept as is: there is
-  no `/api/` proxy, no Bun fallback and no Cloudflare include line.
+  no `/api/` proxy, no Bun fallback and no `cloudflare-only.conf` include
+  line (real client IP still applies; see [Cloudflare](#cloudflare)).
   You are now responsible for building/copying your own Bun-generated HTML assets into `/var/www/html`.
 
   Build steps typically look like `bun install && bun run build` from your project and then `cp -R dist/* /var/www/html` before managing your own Bun service.
+
+- `SKIP_CLOUDFLARE=1` — Do not install the Cloudflare updater, its timer
+  or its Nginx files, and do not fetch Cloudflare's IP ranges. See
+  [Cloudflare](#cloudflare).
 
 - `FULL_UPGRADE=1` — Upgrade packages with `apt-get full-upgrade`, which
   may remove packages and install new kernels. By default the installer runs
@@ -420,6 +529,7 @@ Example:
 sudo SKIP_BUN_APP=1 bash install.sh
 # or
 sudo bash install.sh SKIP_BUN_APP=1 FULL_UPGRADE=1
+sudo bash install.sh SKIP_CLOUDFLARE=1
 ```
 
 ## Notes

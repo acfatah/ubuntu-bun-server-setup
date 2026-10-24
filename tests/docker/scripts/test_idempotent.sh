@@ -12,8 +12,11 @@ edited_files=(
   /etc/nginx/sites-available/default
   /etc/nginx/snippets/bun-proxy.conf
   /etc/nginx/conf.d/bun-connection-upgrade.conf
-  /etc/nginx/cloudflare-ip-filter.conf
-  /etc/nginx/cloudflare-update-ips.sh
+  /usr/local/sbin/cloudflare-update-ips
+  /etc/systemd/system/cloudflare-update-ips.service
+  /etc/systemd/system/cloudflare-update-ips.timer
+  /etc/nginx/conf.d/bun-cloudflare.conf
+  /etc/nginx/snippets/cloudflare-only.conf
   /etc/update-motd.d/00-custom
 )
 

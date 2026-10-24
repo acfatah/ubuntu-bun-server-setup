@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily update of Cloudflare IP lists for Nginx
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

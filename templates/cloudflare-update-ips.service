@@ -1,0 +1,11 @@
+[Unit]
+Description=Update Cloudflare IP lists for Nginx
+Documentation=https://github.com/acfatah/ubuntu-bun-server-setup#cloudflare
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cloudflare-update-ips
+NoNewPrivileges=yes
+PrivateTmp=yes
