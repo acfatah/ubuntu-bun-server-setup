@@ -104,8 +104,10 @@ test_happy_path() {
 }
 
 test_linked_worktree_dry_run() {
-  git -C "$WORK/repo" worktree add --quiet --detach "$WORK/wt"
-  git -C "$WORK/wt" checkout --quiet -B main
+  # main can be checked out in one worktree only; newer git refuses -B
+  git -C "$WORK/repo" checkout --quiet --detach
+  git -C "$WORK/repo" worktree add --quiet "$WORK/wt" main
+  [[ $(git -C "$WORK/wt" symbolic-ref --short HEAD) == main ]] || fail "setup: worktree is not on main"
   CWD="$WORK/wt/templates" release "$WORK/wt" --dry-run patch
   expect_rc 0 && expect_out "All checks passed" && expect_out "ubuntu-bun-server-setup 1.2.4"
 }
