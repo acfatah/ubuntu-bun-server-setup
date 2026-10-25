@@ -13,9 +13,23 @@ if bash "$INSTALLER" BOGUS=1 2>"$LOG_DIR/bogus.err"; then
 fi
 assert_file_contains "$LOG_DIR/bogus.err" "Unknown argument: BOGUS=1"
 
+# A ref that could climb out of the repo path is rejected
+if TEMPLATE_REF=../x bash "$INSTALLER" 2>"$LOG_DIR/ref.err"; then
+  echo "${RED}Assertion failed:${NC} installer accepted TEMPLATE_REF=../x" >&2
+  exit 1
+fi
+assert_file_contains "$LOG_DIR/ref.err" "Invalid TEMPLATE_REF=../x"
+
+# --version names the dev build and the ref; --help needs no root
+version=$(TEMPLATE_REF=v0.4.0 bash "$INSTALLER" --version)
+echo "$version"
+grep -q "ubuntu-bun-server-setup dev" <<<"$version"
+grep -q "templates: v0.4.0 from https://raw.githubusercontent.com/.*/v0.4.0/templates" <<<"$version"
+sudo -u tester bash "$INSTALLER" --help | grep -q "TEMPLATE_BASE_URL"
+
 # Pipe the installer like the README Quick Start, from a cwd without
-# templates, passing the toggles as arguments. SKIP_CLOUDFLARE=1: the
-# Cloudflare templates may not be on main yet
+# templates, passing a toggle as an argument. Templates come from this
+# checkout through file://, so branch edits are tested before a merge.
 # Kept out of /tmp: files written there during the run were gone by the
 # time the asserts ran in the test container
 test_dir=/root/piped-test
@@ -23,7 +37,7 @@ mkdir -p "$test_dir"
 log="$test_dir/piped.log"
 work_dir="$test_dir/cwd"
 mkdir -p "$work_dir"
-(cd "$work_dir" && bash -s -- SKIP_BUN_APP=1 SKIP_CLOUDFLARE=1 <"$INSTALLER" 2>&1 | tee "$log")
+(cd "$work_dir" && TEMPLATE_BASE_URL=file:///workspace/templates bash -s -- SKIP_BUN_APP=1 <"$INSTALLER" 2>&1 | tee "$log")
 
 if grep -q "unbound variable" "$log"; then
   echo "${RED}Assertion failed:${NC} piped install printed 'unbound variable'" >&2
@@ -34,13 +48,11 @@ if grep -q "Using local template" "$log"; then
   exit 1
 fi
 assert_file_contains "$log" "Downloading template"
+assert_file_contains "$log" "templates: main from file:///workspace/templates"
 
-# SKIP_BUN_APP=1 and SKIP_CLOUDFLARE=1 took effect
+# SKIP_BUN_APP=1 took effect; Cloudflare support still installed
 for file in /usr/local/sbin/cloudflare-update-ips /etc/nginx/conf.d/bun-cloudflare.conf; do
-  if [[ -e $file ]]; then
-    echo "${RED}Assertion failed:${NC} SKIP_CLOUDFLARE=1 installed $file" >&2
-    exit 1
-  fi
+  assert_file_exists "$file"
 done
 assert_file_contains /etc/nginx/sites-available/default "root /var/www/html"
 curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "Hello World"
@@ -48,3 +60,5 @@ if id -u bun-app >/dev/null 2>&1; then
   echo "bun-app user must not exist with SKIP_BUN_APP" >&2
   exit 1
 fi
+assert_file_contains /var/lib/app-info/application.info 'installer_version="dev"'
+assert_file_contains /var/lib/app-info/application.info 'template_ref="main"'
