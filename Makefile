@@ -5,11 +5,11 @@ SHFMT ?= shfmt
 
 ACTIONLINT ?= actionlint
 
-SHELL_FILES = install.sh release.sh \
+SHELL_FILES = install.sh release.sh build-installer.sh \
 	$(wildcard tests/docker/*.sh tests/docker/scripts/*.sh templates/*.sh)
 TEST_RUNNER = tests/docker/run.sh
 
-.PHONY: lint lint-actions format format-check test release
+.PHONY: lint lint-actions format format-check test dist release
 
 lint:
 	$(SHELLCHECK) $(SHELLCHECK_FLAGS) $(SHELL_FILES)
@@ -26,6 +26,11 @@ format-check:
 
 test:
 	$(TEST_RUNNER)
+
+# Pinned release installer in dist/; VERSION defaults to the VERSION file
+VERSION ?= $(shell cat VERSION)
+dist:
+	./build-installer.sh $(VERSION)
 
 # Release target
 release:

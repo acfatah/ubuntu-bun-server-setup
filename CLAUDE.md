@@ -14,7 +14,7 @@ files the installer drops onto the target host.
 ## Commands
 
 ```bash
-make lint          # shellcheck every *.sh (install, release, tests, templates)
+make lint          # shellcheck every *.sh (install, release, build, tests, templates)
 make format        # shfmt -w; style comes from .editorconfig
 make format-check  # shfmt -d; fails on unformatted files
 make lint-actions  # actionlint on .github/workflows (shellchecks run: blocks)
@@ -22,10 +22,13 @@ make test          # all Docker e2e tests (needs Docker + privileged containers)
 UBUNTU_VERSION=24.04 make test            # e2e on another Ubuntu (default 22.04)
 tests/docker/run.sh test_default          # single test (.sh suffix optional)
 ./release.sh --dry-run minor              # preview a release
+make dist VERSION=1.2.3                   # pinned installer in dist/ (default: VERSION file)
+./build-installer.sh 1.2.3 /tmp/out       # same, any out-dir
 ```
 
-- Lint and format cover `install.sh`, `release.sh`, `tests/docker/**/*.sh`
-  and `templates/*.sh` (`SHELL_FILES` in `Makefile`).
+- Lint and format cover `install.sh`, `release.sh`, `build-installer.sh`,
+  `tests/docker/**/*.sh` and `templates/*.sh` (`SHELL_FILES` in
+  `Makefile`).
 - Style lives in `.editorconfig` (2-space, `-bn -ci`); shfmt reads it only
   when no printer flags are passed. `.shellcheckrc` sets
   `external-sources=true`, so no `-x`.
@@ -41,10 +44,30 @@ tests/docker/run.sh test_default          # single test (.sh suffix optional)
 - If `templates/<name>` exists next to the script, it is copied (cloned-repo
   or test run). Only when run from a real file: a piped run has no
   `BASH_SOURCE[0]`, so it never uses a local `templates/`.
-- Otherwise it is fetched from `TEMPLATE_BASE_URL`, which is pinned to
-  **`main`** on GitHub (the `curl | sudo bash` path).
-- Gotcha: template edits on a branch are exercised by tests (repo mounted
-  locally) but never reach curl-piped installs until merged to `main`.
+- Otherwise it is fetched from `TEMPLATE_BASE_URL`, default
+  `raw.githubusercontent.com/.../$TEMPLATE_REF/templates`;
+  `TEMPLATE_REF` defaults to `INSTALLER_REF`. Both are **env only** (not
+  `KEY=VALUE` args); `parse_args` rejects a `TEMPLATE_REF` outside
+  `[A-Za-z0-9._/-]` or containing `..`, before the root check.
+- Three lines near the top are release slots: `INSTALLER_VERSION=dev`,
+  `INSTALLER_REF=main`, `TEMPLATE_SHA256=''`. The repo copy is the **dev
+  channel** (templates from `main`, unverified). `build-installer.sh`
+  rewrites exactly those lines (it fails unless each matches once, so
+  keep them verbatim): version, `vX.Y.Z`, and `<sha>  <name>` per
+  template.
+- A download goes to a `mktemp` file in the destination's directory,
+  is checked by `verify_template`, then `chmod 644` + `mv`; a failed
+  check never replaces an existing file. Verification runs only when
+  `TEMPLATE_SHA256` is set and `TEMPLATE_REF == INSTALLER_REF` (also via
+  a `TEMPLATE_BASE_URL` mirror); another ref prints one warning and
+  skips it. Local templates are never verified.
+- `--version`/`-V` and `--help`/`-h` exit 0 before the root check;
+  `print_version` also runs at the start of `main`; `start_log` writes
+  the version; `application.info` records `installer_version` and
+  `template_ref` (`local` when a local `templates/` exists).
+- Gotcha: template edits on a branch reach curl-piped installs only once
+  merged to `main` (dev channel) or released (pinned). Tests pipe with
+  `TEMPLATE_BASE_URL=file:///workspace/templates` to cover them earlier.
 
 ### Placeholders
 
@@ -53,7 +76,8 @@ Templates contain `__NAME__` tokens (`__NGINX_ROOT__`, `__INSTANCE_ID__`,
 `replace_placeholder` (sed with `|` delimiter; escapes `|` and `&`). Adding
 a token means editing both the template and the matching
 `replace_placeholder` call. `__INSTANCE_ID__` lives in
-`templates/bun-app.env`, not in the unit.
+`templates/bun-app.env`, not in the unit. `__INSTALLER_VERSION__` and
+`__TEMPLATE_REF__` are in `templates/application.info`.
 
 ### Install flow (`main`)
 
@@ -230,9 +254,15 @@ Re-running must be safe and never clobber user edits:
   units, `conf.d` file and snippet, MOTD), one stable `INSTANCE_ID` in `/etc/environment`, the env file and
   the process, MOTD diversions survive a
   `base-files` reinstall), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
-  SKIP_CLOUDFLARE=1 <install.sh`, remote templates from `main`; Cloudflare
-  skipped because new templates are not on `main` before merge; no updater
-  or `conf.d` file; unknown-arg rejection),
+  <install.sh` with `TEMPLATE_BASE_URL=file:///workspace/templates`;
+  Cloudflare updater and `conf.d` installed; unknown-arg and
+  `TEMPLATE_REF=../x` rejection; `--version` names the ref; `--help` as
+  non-root),
+  `test_release_build` (`build-installer.sh 9.9.9 /root/...`;
+  `SHA256SUMS` and `--version`; pinned piped install verifies `file://`
+  templates; a tampered `application.info` fails the re-run, old file
+  byte-identical, no temp file left; `TEMPLATE_REF=main` warns and skips
+  verification),
   `test_fail_loudly` (broken `nginx-default.conf` in a copy of the repo
   exits non-zero with the trap message, no colour escapes off-TTY),
   `test_host_safety` (`FULL_UPGRADE=yes` rejected, openssh-server on port
@@ -275,6 +305,12 @@ Re-running must be safe and never clobber user edits:
 - Run from `main` only: `.github/workflows/release.yml` fails if the tag is
   not an ancestor of `origin/main`; it then generates notes via
   `changelogithub` (pinned in the workflow).
+- The workflow also checks `VERSION` equals the tag without `v`, runs
+  `./build-installer.sh` before `changelogithub` creates the release,
+  then `gh release upload`s `dist/install.sh` and `dist/SHA256SUMS`
+  (`--clobber`). README's main install URL is
+  `releases/latest/download/install.sh`; assets exist from 0.5.0 on.
+- `dist/` is git-ignored output of `build-installer.sh`.
 - `make release` has no args; it just runs `./release.sh` (interactive).
 
 ## Conventions

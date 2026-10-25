@@ -10,7 +10,7 @@ on:
 
 jobs:
   create-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -22,6 +22,15 @@ jobs:
           git fetch origin main
           git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main || { echo "Tag must point to main"; exit 1; }
 
+      - name: Ensure VERSION matches the tag
+        run: |
+          version=$(cat VERSION)
+          [[ $version == "${GITHUB_REF_NAME#v}" ]] || { echo "VERSION ($version) does not match tag $GITHUB_REF_NAME"; exit 1; }
+
+      # Before the release exists, so a failed build publishes nothing
+      - name: Build pinned installer
+        run: ./build-installer.sh "${GITHUB_REF_NAME#v}" dist
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -31,3 +40,9 @@ jobs:
         run: bunx --bun changelogithub@15.0.5 --no-emoji
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer assets
+        run: gh release upload "$GITHUB_REF_NAME" dist/install.sh dist/SHA256SUMS --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}

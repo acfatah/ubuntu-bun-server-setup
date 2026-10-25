@@ -56,28 +56,37 @@ hosts may get a newer version; Nginx follows the Ubuntu release.
 
 ## Quick Start
 
-Pipe the installer directly to bash (runs as root with sudo)
+Pipe the latest release's installer to bash (runs as root with sudo):
 
 > [!IMPORTANT]
 > Piping remote scripts to a shell executes code from the network — review the script before running.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo bash
+curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/download/install.sh | sudo bash
 ```
+
+A release installer fetches the templates of its own tag and checks each one
+against the SHA-256 sums built into it; a mismatch stops the install before
+the file is written.
+
+> [!NOTE]
+> Release installers exist from 0.5.0 on. Older releases have no
+> `install.sh` asset, so their versioned URLs return 404.
 
 To skip sample app:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo bash -s -- SKIP_BUN_APP=1
+curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/download/install.sh | sudo bash -s -- SKIP_BUN_APP=1
 ```
 
 The same toggle also works as an environment variable:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo SKIP_BUN_APP=1 bash
+curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/download/install.sh | sudo SKIP_BUN_APP=1 bash
 ```
 
-Or after cloning this repository:
+Or after cloning this repository (the development channel; templates are
+read from the clone):
 
 ```bash
 sudo bash install.sh
@@ -98,6 +107,48 @@ If a step fails, the installer stops, exits non-zero and prints
 `install failed at line N (<step>)`. If it completes but something is not
 running (Certbot, Nginx, `bun-app`), the summary lists it and the exit
 status is non-zero.
+
+### Pin and check a version
+
+Download a fixed release, check it against the release's `SHA256SUMS`, then
+run it:
+
+```bash
+curl -fsSLO https://github.com/acfatah/ubuntu-bun-server-setup/releases/download/v0.5.0/install.sh
+curl -fsSLO https://github.com/acfatah/ubuntu-bun-server-setup/releases/download/v0.5.0/SHA256SUMS
+sha256sum -c SHA256SUMS
+sudo bash install.sh
+```
+
+`--version` prints the installer version and where its templates come from;
+`--help` lists the toggles. Neither needs root:
+
+```bash
+curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/download/install.sh | bash -s -- --version
+```
+
+### Development channel
+
+The `install.sh` on `main` is the development channel: it reports version
+`dev`, fetches templates from `main`, and does not verify them.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo bash
+```
+
+### Template source
+
+Two environment variables change where templates are downloaded from. They
+are not `KEY=VALUE` arguments; with `sudo`, put them after it, as in
+`sudo TEMPLATE_REF=dev bash`.
+
+- `TEMPLATE_REF=<ref>` — a branch, tag or commit of this repository. A
+  release installer pointed at another ref skips verification and prints a
+  warning, since the files are expected to differ. Letters, digits, `.`,
+  `_`, `/` and `-` only, and no `..`.
+- `TEMPLATE_BASE_URL=<url>` — the templates directory itself, such as a
+  mirror or `file:///path/to/templates`. A release installer still verifies
+  what it downloads from there.
 
 ## Re-running the installer
 
@@ -476,10 +527,20 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   `/etc/bun-app.env` and the process environment), and the MOTD
   diversions outlast a `base-files` reinstall.
 - `test_piped_install.sh` — pipes the installer into `bash -s --
-  SKIP_BUN_APP=1 SKIP_CLOUDFLARE=1` the way the Quick Start does (the
-  Cloudflare templates may not be on `main` yet), checks the arguments take
-  effect, that no `BASH_SOURCE` error is printed, that remote templates are
-  used, and that unknown arguments are rejected.
+  SKIP_BUN_APP=1` the way the Quick Start does, with
+  `TEMPLATE_BASE_URL=file:///workspace/templates` so the branch's templates
+  are used. Checks the argument takes effect, Cloudflare support is
+  installed, no `BASH_SOURCE` error is printed, downloaded (not local)
+  templates are used, and that unknown arguments and a `TEMPLATE_REF` with
+  `..` are rejected; `--version` names the ref and `--help` runs as
+  non-root.
+- `test_release_build.sh` — builds a pinned installer with
+  `build-installer.sh 9.9.9`, checks its `SHA256SUMS` and `--version`, and
+  pipes it with `file://` templates: templates are verified and
+  `application.info` records `installer_version="9.9.9"`. A re-run with a
+  tampered `application.info` fails with a checksum error and leaves the
+  installed file unchanged; with `TEMPLATE_REF=main` it warns and skips
+  verification.
 - `test_host_safety.sh` — rejects `FULL_UPGRADE=yes`, installs
   openssh-server on port 2222 and checks UFW limits `2222/tcp` (not 22) and
   the default run uses `apt-get upgrade`. After adding a rule and changing

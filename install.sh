@@ -16,15 +16,27 @@ set -Eeuo pipefail
 #   SKIP_CLOUDFLARE=1 -> skip the Cloudflare IP updater and Nginx files
 #   FULL_UPGRADE=1    -> apt-get full-upgrade instead of upgrade
 #
+# Template source (env var only):
+#   TEMPLATE_REF=<ref>      -> git ref to fetch templates from
+#   TEMPLATE_BASE_URL=<url> -> templates directory URL (mirror, file://)
+#
 # Usage:
 #   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]
 #   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]
+#   bash install.sh --version | --help
 # ==============================================================================
+
+# Release builds: build-installer.sh rewrites these three lines, pinning
+# templates to the release tag and embedding their SHA-256 sums. The repo
+# copy is the dev channel (templates from main, unverified).
+INSTALLER_VERSION=dev
+INSTALLER_REF=main
+TEMPLATE_SHA256=''
 
 APP_DIR=/srv/app
 NGINX_ROOT=/var/www/app/dist
 LOG_FILE=/var/log/bun-installer.log
-USAGE="Usage: install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]"
+USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]"
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
 # Colours only on a terminal; logs and CI output stay free of escapes
 if [[ -t 1 ]]; then
@@ -35,7 +47,8 @@ if [[ -t 1 ]]; then
 else
   GREEN='' YELLOW='' RED='' NC=''
 fi
-TEMPLATE_BASE_URL="https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/refs/heads/main/templates"
+TEMPLATE_REF=${TEMPLATE_REF:-$INSTALLER_REF}
+TEMPLATE_BASE_URL=${TEMPLATE_BASE_URL:-https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/$TEMPLATE_REF/templates}
 # Local templates are used only when run from a file (clone or test), never
 # when piped, so a stray ./templates in cwd is never deployed.
 TEMPLATE_LOCAL_DIR=""
@@ -56,7 +69,74 @@ download_template() {
   fi
 
   echo -e "${YELLOW}Downloading template $template_name...${NC}"
-  curl -fsSL "${TEMPLATE_BASE_URL}/${template_name}" -o "$dest_path"
+  # Verified before the move, so a bad download never replaces a file.
+  # mktemp creates 0600; nginx and bun-app must read the result.
+  local tmp
+  tmp=$(mktemp "$(dirname "$dest_path")/.${dest_path##*/}.XXXXXX")
+  if ! curl -fsSL "${TEMPLATE_BASE_URL}/${template_name}" -o "$tmp" \
+    || ! verify_template "$template_name" "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod 644 "$tmp"
+  mv "$tmp" "$dest_path"
+}
+
+# True when downloads are checked: a release build fetching its own ref.
+verify_templates() {
+  [[ -n $TEMPLATE_SHA256 && $TEMPLATE_REF == "$INSTALLER_REF" ]]
+}
+
+# Checks a downloaded template against the SHA-256 embedded in a release
+# build; a missing entry fails too. No-op unless verify_templates.
+verify_template() {
+  local name=$1 file=$2 expected actual
+  verify_templates || return 0
+
+  expected=$(awk -v name="$name" '$2 == name {print $1; exit}' <<<"$TEMPLATE_SHA256")
+  if [[ -z $expected ]]; then
+    echo -e "${RED}No checksum for template $name in installer ${INSTALLER_VERSION}.${NC}" >&2
+    return 1
+  fi
+  actual=$(sha256sum "$file")
+  actual=${actual%% *}
+  if [[ $actual != "$expected" ]]; then
+    echo -e "${RED}Template $name failed its checksum (expected $expected, got $actual).${NC}" >&2
+    return 1
+  fi
+  echo "Checksum OK: $name"
+}
+
+# Prints the installer version and where templates come from.
+print_version() {
+  echo "ubuntu-bun-server-setup ${INSTALLER_VERSION}"
+  echo "templates: ${TEMPLATE_REF} from ${TEMPLATE_BASE_URL}"
+  if [[ -n $TEMPLATE_LOCAL_DIR && -d $TEMPLATE_LOCAL_DIR ]]; then
+    echo "local templates (used first): ${TEMPLATE_LOCAL_DIR}"
+  fi
+}
+
+# Prints usage, toggles and the template source overrides.
+print_help() {
+  cat <<EOF
+$USAGE
+
+Provisions Ubuntu 22.04+ with Bun, Nginx, UFW, Certbot and a sample Bun
+app. Run as root.
+
+Options:
+  -V, --version      print the version and template source, then exit
+  -h, --help         print this help, then exit
+
+Toggles (KEY=VALUE argument or env var; only 1 enables):
+  SKIP_BUN_APP=1     skip the sample app, its user and its unit
+  SKIP_CLOUDFLARE=1  skip the Cloudflare IP updater and Nginx files
+  FULL_UPGRADE=1     apt-get full-upgrade instead of upgrade
+
+Template source (env var only):
+  TEMPLATE_REF=<ref>       git ref to fetch templates from (default: ${INSTALLER_REF})
+  TEMPLATE_BASE_URL=<url>  templates directory URL, e.g. a mirror or file://
+EOF
 }
 
 replace_placeholder() {
@@ -113,8 +193,22 @@ full_upgrade() {
 # Applies KEY=VALUE arguments as toggles; only known keys are accepted.
 parse_args() {
   local arg name
+  # Ends up in a URL; no "..", so it cannot climb out of the repo path
+  if [[ ! $TEMPLATE_REF =~ ^[A-Za-z0-9._/-]+$ || $TEMPLATE_REF == *..* ]]; then
+    echo -e "${RED}Invalid TEMPLATE_REF=${TEMPLATE_REF}${NC}" >&2
+    exit 1
+  fi
+
   for arg in "$@"; do
     case $arg in
+      -V | --version)
+        print_version
+        exit 0
+        ;;
+      -h | --help)
+        print_help
+        exit 0
+        ;;
       SKIP_BUN_APP=*)
         SKIP_BUN_APP="${arg#*=}"
         ;;
@@ -489,6 +583,10 @@ write_application_info() {
   distro_arch=$(uname -m)
   local application_version
   application_version=$(bun --version 2>/dev/null || echo "unknown")
+  local template_ref=$TEMPLATE_REF
+  if [[ -n $TEMPLATE_LOCAL_DIR && -d $TEMPLATE_LOCAL_DIR ]]; then
+    template_ref=local
+  fi
 
   download_template "application.info" "$info_file"
   replace_placeholder "$info_file" "__BUILD_DATE__" "$build_date"
@@ -497,6 +595,8 @@ write_application_info() {
   replace_placeholder "$info_file" "__DISTRO_CODENAME__" "$distro_codename"
   replace_placeholder "$info_file" "__DISTRO_ARCH__" "$distro_arch"
   replace_placeholder "$info_file" "__APPLICATION_VERSION__" "$application_version"
+  replace_placeholder "$info_file" "__INSTALLER_VERSION__" "$INSTALLER_VERSION"
+  replace_placeholder "$info_file" "__TEMPLATE_REF__" "$template_ref"
 }
 
 # Records INSTANCE_ID in /etc/environment as exactly one line; also
@@ -605,7 +705,7 @@ start_log() {
   touch "$LOG_FILE"
   chown root:adm "$LOG_FILE"
   chmod 640 "$LOG_FILE"
-  echo "=== bun-installer $(date -Is) args: ${*:-none} ===" >>"$LOG_FILE"
+  echo "=== bun-installer ${INSTALLER_VERSION} $(date -Is) args: ${*:-none} ===" >>"$LOG_FILE"
 }
 
 # Runs every install step. Runs in the tee pipeline's subshell, so the ERR
@@ -614,6 +714,12 @@ main() {
   trap 'echo -e "${RED}install failed at line $LINENO (${FUNCNAME[0]:-main})${NC}" >&2' ERR
 
   echo -e "${GREEN}Starting Ubuntu Bun installation script...${NC}"
+  print_version
+  if verify_templates; then
+    echo "Downloaded templates are checked against the SHA-256 sums of ${INSTALLER_REF}."
+  elif [[ -n $TEMPLATE_SHA256 ]]; then
+    echo -e "${YELLOW}TEMPLATE_REF=${TEMPLATE_REF} differs from ${INSTALLER_REF}; templates are not verified.${NC}"
+  fi
   require_ubuntu
   apt_update_upgrade
   install_base_packages
