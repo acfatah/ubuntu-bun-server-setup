@@ -1,57 +1,82 @@
 # Releasing ubuntu-bun-server-setup
 
-This project includes an automated release script similar to `bumpp` for npm
-packages but designed for bash script projects.
+`release.sh` bumps the `VERSION` file, commits and tags the release, and
+pushes both to `origin` in one atomic push. The tag triggers the release
+workflow, which builds and publishes the installer.
 
-## Version Management
+## Requirements
 
-The project uses semantic versioning (SemVer) with a `VERSION` file in the root
-directory that tracks the current version.
+- On the `main` branch, with `HEAD` equal to `origin/main` after a fetch:
+  not behind it, and not ahead of it (unpushed commits would reach `main`
+  without review).
+- No uncommitted changes to tracked files, staged or not. Untracked files
+  are allowed.
+- Permission to push to `main` and to push tags on `origin`.
 
-## Release Commands
+The script runs from any directory in the repository, including a linked
+worktree; it moves to the top of the work tree first.
 
-Run releases from an up-to-date `main` branch. The release workflow rejects
-tags that are not on `main`.
-
-### Using the release script directly
-
-```bash
-# Interactive prompt for release type (patch is the default)
-./release.sh
-
-# Bump patch version (1.0.0 -> 1.0.1)
-./release.sh patch      # or --patch
-
-# Bump minor version (1.0.0 -> 1.1.0)
-./release.sh minor      # or --minor
-
-# Bump major version (1.0.0 -> 2.0.0)
-./release.sh major      # or --major
-
-# Set specific version
-./release.sh 2.0.0
-
-# Dry run - show what would be done without making changes
-./release.sh --dry-run
-./release.sh --dry-run minor
-```
-
-In a non-interactive shell, `./release.sh` with no release type defaults to a
-patch release.
-
-### Using make
+## Release commands
 
 ```bash
-# Same as ./release.sh (interactive prompt, patch default)
-make release
+./release.sh                 # prompt for the type (patch default), then confirm
+./release.sh patch           # 1.0.0 -> 1.0.1   (also --patch)
+./release.sh minor           # 1.0.0 -> 1.1.0   (also --minor)
+./release.sh major           # 1.0.0 -> 2.0.0   (also --major)
+./release.sh 2.0.0           # a specific version
+./release.sh --yes minor     # skip the confirmation (-y)
+./release.sh --dry-run minor # run every check, change nothing (-d)
+make release                 # same as ./release.sh
 ```
 
-## What the release process does
+- **Confirmation:** the script shows the plan (versions, commit, tag,
+  remote) and asks `Proceed? [y/N]`.
+- **Without a terminal** (CI, a pipe, `</dev/null`), it never prompts:
+  pass `--yes` or it exits 1 with nothing changed. With no release type,
+  the type defaults to patch.
+- **Unknown options** such as `--bogus` exit 1 with the usage.
 
-1. Updates the `VERSION` file with the new version
-2. Creates a git commit with the message "release: v[version]"
-3. Creates a git tag with the format "v[version]"
-4. Pushes the current branch and the tag to `origin`
+## Checks
+
+Before writing anything, the script runs every check and lists all the
+problems it finds. Any problem means exit 1, with nothing changed:
+
+1. The current branch is `main`.
+2. No uncommitted changes to tracked files.
+3. `git fetch origin main --tags` succeeds, and `HEAD` equals
+   `origin/main`.
+4. The tag `vX.Y.Z` exists neither locally nor on `origin`.
+5. The target version is greater than `VERSION` (SemVer, field by field).
+6. `./build-installer.sh X.Y.Z` builds the pinned installer into a
+   temporary directory, so a broken release line in `install.sh` fails
+   here instead of in the workflow after the tag is public.
+
+`--dry-run` runs the same checks, including the fetch and the build. It
+prints the problems, or the pinned installer's `--version` when there
+are none, then the actions a real run would take. It exits 1 when a real
+run would refuse, 0 otherwise.
+
+## What a release does
+
+1. Writes the new version to `VERSION`.
+2. Commits it as `release: vX.Y.Z`.
+3. Creates the annotated tag `vX.Y.Z` (message `Release vX.Y.Z`).
+4. Runs `git push --atomic origin main refs/tags/vX.Y.Z`: either both the
+   commit and the tag reach `origin`, or neither does.
+
+## Recovering from a rejected push
+
+If `origin` rejects the push (for example, `main` moved after the checks),
+nothing reached it, but the commit and tag exist locally. The script
+prints the commands that undo them:
+
+```bash
+git tag -d vX.Y.Z && git reset --soft HEAD~1 && git restore --staged VERSION && git checkout VERSION
+```
+
+Then pull and run the release again.
+
+## Release workflow
 
 Pushing the `v*` tag triggers `.github/workflows/release.yml`, which:
 
@@ -73,9 +98,15 @@ make dist                      # dist/install.sh for the VERSION file
 ./build-installer.sh 1.2.3 /tmp/out
 ```
 
-## Requirements
+## Testing the release script
 
-- Git repository with clean working directory (no uncommitted changes); not
-  required for `--dry-run`
-- VERSION file in the root directory
-- Permission to push commits and tags to `origin`
+```bash
+make test-release              # or tests/release/run.sh
+```
+
+`tests/release/run.sh` needs only `git` and `bash`. Each scenario runs
+`release.sh` without a terminal in a throwaway clone with a bare `origin`
+under `mktemp -d`, with the user's git config ignored. It covers the happy
+path (annotated tag on `origin`), a linked worktree, every refusal above,
+`--dry-run`, a push rejected by a `pre-receive` hook, and unknown options.
+CI runs it in the `lint` job.

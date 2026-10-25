@@ -6,10 +6,10 @@ SHFMT ?= shfmt
 ACTIONLINT ?= actionlint
 
 SHELL_FILES = install.sh release.sh build-installer.sh \
-	$(wildcard tests/docker/*.sh tests/docker/scripts/*.sh templates/*.sh)
+	$(wildcard tests/docker/*.sh tests/docker/scripts/*.sh tests/release/*.sh templates/*.sh)
 TEST_RUNNER = tests/docker/run.sh
 
-.PHONY: lint lint-actions format format-check test dist release
+.PHONY: lint lint-actions format format-check test test-release dist release
 
 lint:
 	$(SHELLCHECK) $(SHELLCHECK_FLAGS) $(SHELL_FILES)
@@ -26,6 +26,10 @@ format-check:
 
 test:
 	$(TEST_RUNNER)
+
+# release.sh against a throwaway repo; needs only git
+test-release:
+	tests/release/run.sh
 
 # Pinned release installer in dist/; VERSION defaults to the VERSION file
 VERSION ?= $(shell cat VERSION)
