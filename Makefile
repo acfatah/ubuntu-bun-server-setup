@@ -5,11 +5,13 @@ SHFMT ?= shfmt
 
 ACTIONLINT ?= actionlint
 
+BATS ?= bats
+
 SHELL_FILES = install.sh release.sh build-installer.sh \
-	$(wildcard tests/docker/*.sh tests/docker/scripts/*.sh tests/release/*.sh templates/*.sh)
+	$(wildcard tests/docker/*.sh tests/docker/scripts/*.sh tests/release/*.sh templates/*.sh tests/unit/*.bats)
 TEST_RUNNER = tests/docker/run.sh
 
-.PHONY: lint lint-actions format format-check test test-release dist release
+.PHONY: lint lint-actions format format-check test test-unit test-release dist release
 
 lint:
 	$(SHELLCHECK) $(SHELLCHECK_FLAGS) $(SHELL_FILES)
@@ -26,6 +28,10 @@ format-check:
 
 test:
 	$(TEST_RUNNER)
+
+# bats unit tests: pure functions and motd.sh; no Docker, no root
+test-unit:
+	$(BATS) tests/unit
 
 # release.sh against a throwaway repo; needs only git
 test-release:

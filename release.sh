@@ -87,9 +87,9 @@ require_repo() {
   [[ -f $VERSION_FILE ]] || die "$VERSION_FILE file not found"
 }
 
-# Fails unless $1 is X.Y.Z.
+# Fails unless $1 is X.Y.Z (SemVer: no leading zeros).
 validate_version() {
-  [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  [[ $1 =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
     || die "Invalid version '$1'. Use semantic versioning (e.g. 1.0.0)."
 }
 

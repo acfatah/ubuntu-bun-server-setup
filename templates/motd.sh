@@ -5,12 +5,20 @@ if [ -z "$DISTRIB_DESCRIPTION" ] && [ -x /usr/bin/lsb_release ]; then
   DISTRIB_DESCRIPTION=$(lsb_release -s -d)
 fi
 
-bun_version=$(bun --version 2>/dev/null || echo "-unknown")
-nginx_version=$(nginx -v 2>&1 | awk -F/ '{print $2}' || echo "-unknown")
+# Empty when a tool is missing or fails; printed as "version unknown"
+bun_version=$(bun --version 2>/dev/null) || bun_version=
+nginx_version=$(nginx -v 2>&1 | sed -n 's|^nginx version: nginx/||p') || nginx_version=
+bun_label="Bun (version unknown)"
+[ -z "$bun_version" ] || bun_label="Bun v$bun_version"
+nginx_label="Nginx (version unknown)"
+[ -z "$nginx_version" ] || nginx_label="Nginx v$nginx_version"
+
+server_ip=$(hostname -I 2>/dev/null | awk '{print $1}') || server_ip=
+[ -n "$server_ip" ] || server_ip="<server-ip>"
 
 cat <<EOM
-Welcome to $DISTRIB_DESCRIPTION, with Bun v$bun_version and Nginx v$nginx_version.
-UFW is enabled with SSH(22), HTTP(80), and HTTPS(443) allowed.
+Welcome to $DISTRIB_DESCRIPTION, with $bun_label and $nginx_label.
+UFW is enabled: SSH rate-limited, HTTP (80) and HTTPS (443) allowed.
 
  * Documentation: https://bun.sh
  * Nginx docs: https://nginx.org/en/docs
@@ -21,7 +29,7 @@ UFW is enabled with SSH(22), HTTP(80), and HTTPS(443) allowed.
  * Nginx root: __NGINX_ROOT__
  * App dir: /srv/app (service: bun-app, runs as user bun-app)
  * App data: /var/lib/bun-app (= /srv/app/data)
- * Public access: http://$(hostname -I | awk '{print$1}')
+ * Public access: http://$server_ip
 
  Commands:
    systemctl status bun-app    # Bun app status

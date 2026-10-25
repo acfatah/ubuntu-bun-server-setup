@@ -24,13 +24,16 @@ jobs:
       SHFMT_SHA256: 27b3c6f9d9592fc5b4856c341d1ff2c88856709b9e76469313642a1d7b558fe0
       ACTIONLINT_VERSION: 1.7.12
       ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      # Source tarball of the tag; its install.sh copies bats into a prefix
+      BATS_VERSION: v1.14.0
+      BATS_SHA256: bb537b70b15b732f6d8827dd6578e3d8ce166636ce1f18ea9a074184fcce9177
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Install shellcheck, shfmt and actionlint
+      - name: Install shellcheck, shfmt, actionlint and bats
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
@@ -38,25 +41,32 @@ jobs:
           shellcheck_tar="shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
           shfmt_bin="shfmt_${SHFMT_VERSION}_linux_amd64"
           actionlint_tar="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          bats_tar="bats-core-${BATS_VERSION}.tar.gz"
           curl -fsSLO "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/${shellcheck_tar}"
           curl -fsSLO "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/${shfmt_bin}"
           curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${actionlint_tar}"
+          curl -fsSL -o "$bats_tar" "https://github.com/bats-core/bats-core/archive/refs/tags/${BATS_VERSION}.tar.gz"
           sha256sum -c - <<SUMS
           ${SHELLCHECK_SHA256}  ${shellcheck_tar}
           ${SHFMT_SHA256}  ${shfmt_bin}
           ${ACTIONLINT_SHA256}  ${actionlint_tar}
+          ${BATS_SHA256}  ${bats_tar}
           SUMS
           tar -xJf "$shellcheck_tar" --strip-components=1 -C bin "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
           install -m 0755 "$shfmt_bin" bin/shfmt
           tar -xzf "$actionlint_tar" -C bin actionlint
+          mkdir bats-src
+          tar -xzf "$bats_tar" --strip-components=1 -C bats-src
+          ./bats-src/install.sh "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
 
       - name: Tool versions
         run: |
-          command -v shellcheck shfmt actionlint
+          command -v shellcheck shfmt actionlint bats
           shellcheck --version
           shfmt --version
           actionlint -version
+          bats --version
 
       - name: shellcheck
         run: make lint
@@ -66,6 +76,9 @@ jobs:
 
       - name: actionlint
         run: make lint-actions
+
+      - name: Unit tests
+        run: make test-unit
 
       - name: release.sh tests
         run: make test-release

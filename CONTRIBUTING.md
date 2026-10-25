@@ -15,6 +15,7 @@ Thank you for your interest in contributing to the Ubuntu Bun Server Setup proje
   - [Testing](#testing)
     - [Running Tests](#running-tests)
     - [Running Individual Tests](#running-individual-tests)
+    - [Unit Tests](#unit-tests)
     - [Release Script Tests](#release-script-tests)
     - [Test Scenarios](#test-scenarios)
     - [Test Development](#test-development)
@@ -86,7 +87,21 @@ To test against another Ubuntu release, set `UBUNTU_VERSION`:
 UBUNTU_VERSION=24.04 make test
 ```
 
-CI runs the same suite on both 22.04 and 24.04 for every pull request, plus `make lint`, `make format-check`, `make lint-actions` and `make test-release`.
+CI runs the same suite on both 22.04 and 24.04 for every pull request, plus `make lint`, `make format-check`, `make lint-actions`, `make test-unit` and `make test-release`.
+
+### Unit Tests
+
+Pure functions and the MOTD script have a [bats-core](https://github.com/bats-core/bats-core) suite under `tests/unit/`. It runs in seconds, without Docker or root:
+
+```bash
+make test-unit
+# without a local bats (v1.14.0, as in CI):
+make test-unit BATS='docker run --rm -v "$PWD:/code:ro" -w /code bats/bats:1.14.0'
+```
+
+- `install.bats` sources `install.sh` (its install steps run only when the script is executed, not sourced) and covers `replace_placeholder`, `parse_args`, the toggles and `TEMPLATE_REF` validation
+- `release.bats` covers `release.sh`'s version helpers and `build-installer.sh`'s version check
+- `motd.bats` runs `templates/motd.sh` with stubbed `bun`, `nginx` and `hostname` commands
 
 ### Release Script Tests
 
@@ -135,6 +150,9 @@ BUN_INSTALLER_TEST_IMAGE=my-registry/ubuntu-bun-installer-tests make test
 ### Test Development
 
 When adding new functionality, please:
+- For a pure function, add a case to `tests/unit/*.bats`; use plain bats (`run`, `[ "$status" -eq 1 ]`, `[[ $output == *text* ]]`), no helper libraries
+- For an install behaviour, add a Docker test:
+
 1. Add a `tests/docker/scripts/test_<name>.sh` script; the runner picks up every `test_*.sh` automatically
 2. Put a `# Test: <label>` line right after the shebang; the runner prints it as the test name
 3. Source `common.sh` for `run_installer` and the `assert_*` helpers, and follow the existing test patterns
@@ -196,7 +214,7 @@ ubuntu-bun-server-setup/
 ├── .github/
 │   ├── dependabot.yml         # Weekly GitHub Actions updates
 │   └── workflows/
-│       ├── ci.yml             # Lint on every PR
+│       ├── ci.yml             # Lint, unit and release tests on every PR
 │       ├── e2e.yml            # Docker e2e tests (22.04/24.04)
 │       └── release.yml        # GitHub Release on v* tags
 ├── build-installer.sh         # Pinned release installer (dist/)
@@ -228,6 +246,10 @@ ubuntu-bun-server-setup/
 └── tests/
     ├── release/
     │   └── run.sh             # release.sh tests (make test-release)
+    ├── unit/                  # bats unit tests (make test-unit)
+    │   ├── install.bats
+    │   ├── motd.bats
+    │   └── release.bats
     └── docker/                # Docker-based test environment
         ├── Dockerfile         # Test environment Dockerfile
         ├── run.sh             # Test runner script

@@ -139,15 +139,29 @@ Template source (env var only):
 EOF
 }
 
+# Replaces every $2 in file $1 with $3, literally: awk reads both through
+# ENVIRON, so \, &, | and newlines are plain text. The file is rewritten
+# in place, keeping its inode, mode and owner.
 replace_placeholder() {
-  local target_file="$1"
-  local placeholder="$2"
-  local value="$3"
-  local escaped_placeholder
-  local escaped_value
-  escaped_placeholder=$(printf '%s' "$placeholder" | sed -e 's/[|&]/\\\&/g')
-  escaped_value=$(printf '%s' "$value" | sed -e 's/[|&]/\\\&/g')
-  sed -i "s|$escaped_placeholder|$escaped_value|g" "$target_file"
+  local target_file="$1" tmp
+  tmp=$(mktemp)
+  if ! PLACEHOLDER="$2" VALUE="$3" awk '
+    BEGIN { p = ENVIRON["PLACEHOLDER"]; v = ENVIRON["VALUE"]; n = length(p) }
+    n == 0 { print; next }
+    {
+      line = $0
+      out = ""
+      while ((i = index(line, p)) > 0) {
+        out = out substr(line, 1, i - 1) v
+        line = substr(line, i + n)
+      }
+      print out line
+    }' "$target_file" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  cat "$tmp" >"$target_file"
+  rm -f "$tmp"
 }
 
 # Returns 0 (after a notice) if the path exists, so a re-run never
@@ -738,8 +752,11 @@ main() {
   print_summary || exit 1
 }
 
-parse_args "$@"
-require_root
-start_log "$@"
-# pipefail carries main's exit status; tee is waited for, so no log loss
-main 2>&1 | tee -a "$LOG_FILE"
+# Runs unless sourced (unit tests); a piped run has no BASH_SOURCE
+if [[ ${BASH_SOURCE[0]:-$0} == "$0" ]]; then
+  parse_args "$@"
+  require_root
+  start_log "$@"
+  # pipefail carries main's exit status; tee is waited for, so no log loss
+  main 2>&1 | tee -a "$LOG_FILE"
+fi
