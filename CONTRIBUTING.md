@@ -15,6 +15,7 @@ Thank you for your interest in contributing to the Ubuntu Bun Server Setup proje
   - [Testing](#testing)
     - [Running Tests](#running-tests)
     - [Running Individual Tests](#running-individual-tests)
+    - [Release Script Tests](#release-script-tests)
     - [Test Scenarios](#test-scenarios)
     - [Test Development](#test-development)
   - [Code Style](#code-style)
@@ -85,7 +86,17 @@ To test against another Ubuntu release, set `UBUNTU_VERSION`:
 UBUNTU_VERSION=24.04 make test
 ```
 
-CI runs the same suite on both 22.04 and 24.04 for every pull request, plus `make lint`, `make format-check` and `make lint-actions`.
+CI runs the same suite on both 22.04 and 24.04 for every pull request, plus `make lint`, `make format-check`, `make lint-actions` and `make test-release`.
+
+### Release Script Tests
+
+`release.sh` has its own harness, which needs only `git` and `bash` (no Docker):
+
+```bash
+make test-release
+```
+
+Each scenario in `tests/release/run.sh` runs the script without a terminal in a throwaway clone with a bare `origin` under `mktemp -d`, ignoring your git config. It covers a full release, a linked worktree, every refusal (off `main`, uncommitted changes, behind or ahead of `origin/main`, existing tag, version not greater, broken installer build), `--dry-run`, a rejected push and unknown options. See [RELEASE.md](RELEASE.md) for the release process.
 
 ### Running Individual Tests
 
@@ -181,7 +192,7 @@ The project uses `shellcheck` for linting and `shfmt` for formatting:
 ## Project Structure
 
 ```
-ubuntu-bun-installer/
+ubuntu-bun-server-setup/
 ├── .github/
 │   ├── dependabot.yml         # Weekly GitHub Actions updates
 │   └── workflows/
@@ -193,6 +204,9 @@ ubuntu-bun-installer/
 ├── Makefile                   # Build and test automation
 ├── README.md                  # Project documentation
 ├── CONTRIBUTING.md            # This file
+├── RELEASE.md                 # Release process
+├── release.sh                 # Checked, atomic release (VERSION, tag, push)
+├── VERSION                    # Current SemVer version
 ├── LICENSE                    # License information
 ├── templates/                 # Template files for config generation
 │   ├── application.info       # Application metadata template
@@ -212,6 +226,8 @@ ubuntu-bun-installer/
 │   ├── package.json           # Sample Bun app package.json
 │   └── server.ts              # Sample Bun app server
 └── tests/
+    ├── release/
+    │   └── run.sh             # release.sh tests (make test-release)
     └── docker/                # Docker-based test environment
         ├── Dockerfile         # Test environment Dockerfile
         ├── run.sh             # Test runner script

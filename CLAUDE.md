@@ -21,14 +21,15 @@ make lint-actions  # actionlint on .github/workflows (shellchecks run: blocks)
 make test          # all Docker e2e tests (needs Docker + privileged containers)
 UBUNTU_VERSION=24.04 make test            # e2e on another Ubuntu (default 22.04)
 tests/docker/run.sh test_default          # single test (.sh suffix optional)
-./release.sh --dry-run minor              # preview a release
+make test-release  # release.sh against a throwaway repo (git + bash only)
+./release.sh --dry-run minor              # every release check, no changes
 make dist VERSION=1.2.3                   # pinned installer in dist/ (default: VERSION file)
 ./build-installer.sh 1.2.3 /tmp/out       # same, any out-dir
 ```
 
 - Lint and format cover `install.sh`, `release.sh`, `build-installer.sh`,
-  `tests/docker/**/*.sh` and `templates/*.sh` (`SHELL_FILES` in
-  `Makefile`).
+  `tests/docker/**/*.sh`, `tests/release/*.sh` and `templates/*.sh`
+  (`SHELL_FILES` in `Makefile`).
 - Style lives in `.editorconfig` (2-space, `-bn -ci`); shfmt reads it only
   when no printer flags are passed. `.shellcheckrc` sets
   `external-sources=true`, so no `-x`.
@@ -284,10 +285,24 @@ Re-running must be safe and never clobber user edits:
 - Override image name (used verbatim, no version tag) with
   `BUN_INSTALLER_TEST_IMAGE`.
 
+### Release script tests (`tests/release/run.sh`)
+
+- Plain bash, no Docker: each `test_*` function gets a fresh `mktemp -d`
+  with a bare `origin.git` and a clone holding copies of `release.sh`,
+  `build-installer.sh`, `install.sh`, `templates/` and `VERSION=1.2.3`.
+  `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1` keep the
+  user's git config out.
+- `release` runs `<dir>/release.sh` with stdin from `/dev/null` (no
+  TTY), setting `OUT` and `RC`; `CWD=` runs it from another directory.
+- Tests run inside `if`, where `set -e` is off: chain assertions with
+  `&&` or `|| return 1`; `fail` also sets `T_FAILED`, so a failed
+  assertion mid-function still fails the test.
+- A rejected push is simulated with a `pre-receive` hook in `origin.git`.
+
 ## CI (`.github/`)
 
 - `ci.yml`: on every PR and push to `main`, runs `make lint`,
-  `make format-check` and `make lint-actions`. Tools are sha256-verified
+  `make format-check`, `make lint-actions` and `make test-release`. Tools are sha256-verified
   release binaries; versions and hashes live in the job's `env:` and are
   bumped by hand (keep them in step with the Docker overrides above).
 - `e2e.yml`: `make test` on a 22.04/24.04 matrix; skipped when a change
@@ -299,12 +314,28 @@ Re-running must be safe and never clobber user edits:
 
 ## Release
 
-- `VERSION` file holds SemVer. `./release.sh [patch|minor|major|X.Y.Z]`
-  (default: interactive, patch) bumps it, commits `release: vX.Y.Z`, tags
-  `vX.Y.Z`, and **pushes the current branch and tag immediately**.
-- Run from `main` only: `.github/workflows/release.yml` fails if the tag is
-  not an ancestor of `origin/main`; it then generates notes via
-  `changelogithub` (pinned in the workflow).
+- `VERSION` file holds SemVer. `./release.sh [-y] [-d]
+  [patch|minor|major|X.Y.Z]` (no type: prompt on a TTY, patch default)
+  bumps it, commits `release: vX.Y.Z`, creates the **annotated** tag
+  `vX.Y.Z`, and runs `git push --atomic origin main refs/tags/vX.Y.Z`.
+  `RELEASE.md` is the user-facing doc; keep the two in sync.
+- `preflight` collects every problem before anything is written: on
+  `RELEASE_BRANCH` (`main`), no tracked changes (staged or not; untracked
+  allowed), `git fetch origin main --tags` OK and `HEAD == origin/main`
+  (behind **and** ahead refused), tag absent locally and on `origin`
+  (`ls-remote` exit 2), target > `VERSION`, `build-installer.sh` builds
+  into a `mktemp -d`. Any problem → exit 1.
+- `--dry-run` runs the same checks (fetch and build included), prints
+  them and the plan, exits 1 if a real run would refuse.
+- `confirm` prompts `[y/N]` on a TTY; without one it exits 1 unless
+  `--yes`. A rejected push prints the unwind commands, never runs them.
+- Repo check is `git rev-parse` and the script `cd`s to the toplevel
+  (`.git` is a file in a linked worktree). `main "$@"` runs only when
+  executed, not sourced, so functions such as `increment_version` and
+  `version_gt` can be unit-tested.
+- `.github/workflows/release.yml` fails if the tag is not an ancestor of
+  `origin/main`; it then generates notes via `changelogithub` (pinned in
+  the workflow).
 - The workflow also checks `VERSION` equals the tag without `v`, runs
   `./build-installer.sh` before `changelogithub` creates the release,
   then `gh release upload`s `dist/install.sh` and `dist/SHA256SUMS`
@@ -312,6 +343,7 @@ Re-running must be safe and never clobber user edits:
   `releases/latest/download/install.sh`; assets exist from 0.5.0 on.
 - `dist/` is git-ignored output of `build-installer.sh`.
 - `make release` has no args; it just runs `./release.sh` (interactive).
+- Tests: `tests/release/run.sh` (see Tests above).
 
 ## Conventions
 
