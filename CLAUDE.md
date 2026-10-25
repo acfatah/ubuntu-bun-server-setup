@@ -14,13 +14,14 @@ files the installer drops onto the target host.
 ## Commands
 
 ```bash
-make lint          # shellcheck every *.sh (install, release, build, tests, templates)
+make lint          # shellcheck every *.sh and tests/unit/*.bats
 make format        # shfmt -w; style comes from .editorconfig
 make format-check  # shfmt -d; fails on unformatted files
 make lint-actions  # actionlint on .github/workflows (shellchecks run: blocks)
 make test          # all Docker e2e tests (needs Docker + privileged containers)
 UBUNTU_VERSION=24.04 make test            # e2e on another Ubuntu (default 22.04)
 tests/docker/run.sh test_default          # single test (.sh suffix optional)
+make test-unit     # bats unit tests (tests/unit): seconds, no Docker or root
 make test-release  # release.sh against a throwaway repo (git + bash only)
 ./release.sh --dry-run minor              # every release check, no changes
 make dist VERSION=1.2.3                   # pinned installer in dist/ (default: VERSION file)
@@ -28,15 +29,18 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
 ```
 
 - Lint and format cover `install.sh`, `release.sh`, `build-installer.sh`,
-  `tests/docker/**/*.sh`, `tests/release/*.sh` and `templates/*.sh`
-  (`SHELL_FILES` in `Makefile`).
-- Style lives in `.editorconfig` (2-space, `-bn -ci`); shfmt reads it only
+  `tests/docker/**/*.sh`, `tests/release/*.sh`, `templates/*.sh` and
+  `tests/unit/*.bats` (`SHELL_FILES` in `Makefile`; both tools detect
+  bats from the shebang or extension).
+- Style lives in `.editorconfig` (2-space, `-bn -ci`, for `*.sh` and
+  `*.bats`); shfmt reads it only
   when no printer flags are passed. `.shellcheckrc` sets
   `external-sources=true`, so no `-x`.
 - `shellcheck`, `shfmt` and `actionlint` must be on `PATH`, or pass an
   override, e.g.
   `make lint SHELLCHECK='docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.10.0'`
-  (`SHFMT`: `mvdan/shfmt:v3.8.0`; `ACTIONLINT`: `rhysd/actionlint:1.7.12`).
+  (`SHFMT`: `mvdan/shfmt:v3.8.0`; `ACTIONLINT`: `rhysd/actionlint:1.7.12`;
+  `BATS`: `docker run --rm -v "$PWD:/code:ro" -w /code bats/bats:1.14.0`).
 
 ## Architecture
 
@@ -74,7 +78,10 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
 
 Templates contain `__NAME__` tokens (`__NGINX_ROOT__`, `__INSTANCE_ID__`,
 `__BUILD_DATE__`, `__DISTRO__`, ...) substituted post-copy by
-`replace_placeholder` (sed with `|` delimiter; escapes `|` and `&`). Adding
+`replace_placeholder`: a literal replacement in awk, with placeholder and
+value passed through `ENVIRON` (no character is special, `\` included).
+The result is written back with `cat >`, so the file keeps its inode,
+mode and owner. Adding
 a token means editing both the template and the matching
 `replace_placeholder` call. `__INSTANCE_ID__` lives in
 `templates/bun-app.env`, not in the unit. `__INSTALLER_VERSION__` and
@@ -83,7 +90,11 @@ a token means editing both the template and the matching
 ### Install flow (`main`)
 
 Top level: `parse_args` → root check → `start_log` → `main 2>&1 | tee -a
-/var/log/bun-installer.log` (`pipefail` carries `main`'s status).
+/var/log/bun-installer.log` (`pipefail` carries `main`'s status). It runs
+only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
+`BASH_SOURCE`), false when sourced, so unit tests can source the script.
+Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
+colours) and `set -Eeuo pipefail`.
 
 `main`: ERR trap → Ubuntu check → `apt-get upgrade` (`full-upgrade` with
 `FULL_UPGRADE=1`) → base packages → UFW rules (no reset) → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
@@ -285,6 +296,26 @@ Re-running must be safe and never clobber user edits:
 - Override image name (used verbatim, no version tag) with
   `BUN_INSTALLER_TEST_IMAGE`.
 
+### Unit tests (`tests/unit/`)
+
+- bats-core v1.14.0, plain (`run`, `[ "$status" -eq … ]`,
+  `[[ $output == *…* ]]`); no bats-assert/support.
+- `setup` sources `install.sh` or `release.sh`, then `set +u` (both set
+  `-u`). Functions that `exit` (`parse_args`, `die`) go through `run`.
+- Gotcha: a bare `! cmd` never fails a bats test (set -e ignores it);
+  wrap the negation in a function, as `not_gt` in `release.bats` does.
+- `install.bats`: `replace_placeholder` (`\1`, `&`, `|`, newline, empty,
+  mode and inode), `parse_args` toggles as arg and env, `TEMPLATE_REF`,
+  `NGINX_ROOT`; sourcing runs nothing, executed and piped runs still do.
+- `release.bats`: `increment_version`, `version_gt`, `validate_version`
+  (leading zeros refused) and `build-installer.sh`'s version check.
+- `motd.bats`: copies `templates/motd.sh`, substitutes `__NGINX_ROOT__`
+  with `replace_placeholder`, runs it with `bun`/`nginx`/`hostname` stubs
+  first on `PATH`.
+- Runs on GNU tools (CI, host) and busybox (`bats/bats` image); keep
+  both green. `tests/release/run.sh` stays plain bash: it needs `git`,
+  which the `bats/bats` image lacks.
+
 ### Release script tests (`tests/release/run.sh`)
 
 - Plain bash, no Docker: each `test_*` function gets a fresh `mktemp -d`
@@ -302,9 +333,12 @@ Re-running must be safe and never clobber user edits:
 ## CI (`.github/`)
 
 - `ci.yml`: on every PR and push to `main`, runs `make lint`,
-  `make format-check`, `make lint-actions` and `make test-release`. Tools are sha256-verified
-  release binaries; versions and hashes live in the job's `env:` and are
-  bumped by hand (keep them in step with the Docker overrides above).
+  `make format-check`, `make lint-actions`, `make test-unit` and
+  `make test-release`. Tools are sha256-verified release binaries; bats
+  is the `bats-core` tag source tarball, installed by its own
+  `install.sh` into `$RUNNER_TEMP`. Versions and hashes live in the
+  job's `env:` and are bumped by hand (keep them in step with the Docker
+  overrides above).
 - `e2e.yml`: `make test` on a 22.04/24.04 matrix; skipped when a change
   touches only `**.md`, `LICENSE` or `.vscode/**`.
 - Both cancel superseded PR runs. Runners are pinned to `ubuntu-24.04`.
@@ -323,7 +357,9 @@ Re-running must be safe and never clobber user edits:
   `RELEASE_BRANCH` (`main`), no tracked changes (staged or not; untracked
   allowed), `git fetch origin main --tags` OK and `HEAD == origin/main`
   (behind **and** ahead refused), tag absent locally and on `origin`
-  (`ls-remote` exit 2), target > `VERSION`, `build-installer.sh` builds
+  (`ls-remote` exit 2), target is `X.Y.Z` without leading zeros
+  (`validate_version`; `build-installer.sh` uses the same regex) and
+  greater than `VERSION`, `build-installer.sh` builds
   into a `mktemp -d`. Any problem → exit 1.
 - `--dry-run` runs the same checks (fetch and build included), prints
   them and the plan, exits 1 if a real run would refuse.
@@ -331,8 +367,8 @@ Re-running must be safe and never clobber user edits:
   `--yes`. A rejected push prints the unwind commands, never runs them.
 - Repo check is `git rev-parse` and the script `cd`s to the toplevel
   (`.git` is a file in a linked worktree). `main "$@"` runs only when
-  executed, not sourced, so functions such as `increment_version` and
-  `version_gt` can be unit-tested.
+  executed, not sourced, so `tests/unit/release.bats` tests
+  `increment_version`, `version_gt` and `validate_version`.
 - `.github/workflows/release.yml` fails if the tag is not an ancestor of
   `origin/main`; it then generates notes via `changelogithub` (pinned in
   the workflow).

@@ -47,7 +47,7 @@ main() {
   local installer
 
   [[ $# -le 2 ]] || die "$USAGE"
-  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid version '${version}'. $USAGE"
+  [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || die "Invalid version '${version}'. $USAGE"
 
   mkdir -p "$out_dir"
   installer="$out_dir/install.sh"

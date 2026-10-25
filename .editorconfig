@@ -8,7 +8,7 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 2
 
-[*.sh]
+[*.{sh,bats}]
 binary_next_line = true
 switch_case_indent = true
 

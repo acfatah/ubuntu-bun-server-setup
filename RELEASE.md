@@ -23,7 +23,7 @@ worktree; it moves to the top of the work tree first.
 ./release.sh patch           # 1.0.0 -> 1.0.1   (also --patch)
 ./release.sh minor           # 1.0.0 -> 1.1.0   (also --minor)
 ./release.sh major           # 1.0.0 -> 2.0.0   (also --major)
-./release.sh 2.0.0           # a specific version
+./release.sh 2.0.0           # a specific version (X.Y.Z, no leading zeros)
 ./release.sh --yes minor     # skip the confirmation (-y)
 ./release.sh --dry-run minor # run every check, change nothing (-d)
 make release                 # same as ./release.sh
@@ -46,7 +46,9 @@ problems it finds. Any problem means exit 1, with nothing changed:
 3. `git fetch origin main --tags` succeeds, and `HEAD` equals
    `origin/main`.
 4. The tag `vX.Y.Z` exists neither locally nor on `origin`.
-5. The target version is greater than `VERSION` (SemVer, field by field).
+5. The target version is `X.Y.Z` without leading zeros (`1.02.0` is
+   refused, as SemVer requires) and greater than `VERSION` (field by
+   field).
 6. `./build-installer.sh X.Y.Z` builds the pinned installer into a
    temporary directory, so a broken release line in `install.sh` fails
    here instead of in the workflow after the tag is public.
