@@ -112,8 +112,9 @@ Download a fixed release, check it against the release's `SHA256SUMS`, then
 run it:
 
 ```bash
-curl -fsSLO https://github.com/acfatah/ubuntu-bun-server-setup/releases/download/v0.5.0/install.sh
-curl -fsSLO https://github.com/acfatah/ubuntu-bun-server-setup/releases/download/v0.5.0/SHA256SUMS
+v=0.5.1   # any release from 0.5.0 on
+curl -fsSLO "https://github.com/acfatah/ubuntu-bun-server-setup/releases/download/v$v/install.sh"
+curl -fsSLO "https://github.com/acfatah/ubuntu-bun-server-setup/releases/download/v$v/SHA256SUMS"
 sha256sum -c SHA256SUMS
 sudo bash install.sh
 ```
