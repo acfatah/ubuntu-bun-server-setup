@@ -45,14 +45,11 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 
 ## Software Included
 
-| Software     | Version | Source | License |
-| ---          | ---     | ---    | ---     |
-| [Bun][1]     | [1.4.x][2] | Official installer (latest) | [MIT][3] |
-| [Nginx][4]   | [1.18.x][5] (22.04), [1.24.x][10] (24.04) | Ubuntu apt | [BSD-2-Clause][6] |
-| [Certbot][7] | [5.8.x][8] | Snap (latest) | [Apache 2.0][9] |
-
-Checked 2026-10-25. Bun and Certbot install their latest release, so new
-hosts may get a newer version; Nginx follows the Ubuntu release.
+| Software     | Source | License |
+| ---          | ---    | ---     |
+| [Bun][1]     | Official installer, [latest release][2] | [MIT][3] |
+| [Nginx][4]   | Ubuntu apt ([22.04][5], [24.04][10]) | [BSD-2-Clause][6] |
+| [Certbot][7] | Snap, [latest release][8] | [Apache 2.0][9] |
 
 ## Quick Start
 
@@ -99,7 +96,8 @@ When done:
 - App data (DB, uploads): `/var/lib/bun-app`, also reachable as
   `/srv/app/data`.
 - Sandbox score: `systemd-analyze security bun-app`.
-- Nginx default site: `http://<server-ip>` serving `/var/www/html`.
+- Nginx default site: `http://<server-ip>` serving `/var/www/app/dist`
+  (`/var/www/html` with `SKIP_BUN_APP=1`).
 - Get HTTPS cert for your Nginx site: `certbot --nginx`.
 - Installer log: `/var/log/bun-installer.log` (every run is appended).
 
@@ -318,6 +316,9 @@ Then run `sudo nginx -t && sudo systemctl reload nginx`. Pass
 `SKIP_CLOUDFLARE=1` on later re-runs, or the installer puts it back.
 
 ## Security
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md); please do not
+open a public issue.
 
 ### Service user
 
@@ -541,6 +542,9 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   tampered `application.info` fails with a checksum error and leaves the
   installed file unchanged; with `TEMPLATE_REF=main` it warns and skips
   verification.
+- `test_fail_loudly.sh` — runs a copy of the repo with a broken
+  `nginx-default.conf` and checks the installer exits non-zero with the
+  `install failed at line N` message and no colour escapes off a terminal.
 - `test_host_safety.sh` — rejects `FULL_UPGRADE=yes`, installs
   openssh-server on port 2222 and checks UFW limits `2222/tcp` (not 22) and
   the default run uses `apt-get upgrade`. After adding a rule and changing
@@ -687,6 +691,3 @@ sudo bash install.sh SKIP_CLOUDFLARE=1
 [8]: https://github.com/certbot/certbot/releases
 [9]: https://github.com/certbot/certbot/blob/master/LICENSE.txt
 [10]: https://packages.ubuntu.com/noble/nginx
-
-[21]: https://cloud.digitalocean.com/login
-[22]: https://letsencrypt.org
