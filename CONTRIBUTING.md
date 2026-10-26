@@ -126,6 +126,7 @@ tests/docker/run.sh test_idempotent
 tests/docker/run.sh test_host_safety
 tests/docker/run.sh test_cloudflare
 tests/docker/run.sh test_release_build
+tests/docker/run.sh test_fail_loudly
 ```
 
 The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
@@ -138,6 +139,7 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with `SKIP_BUN_APP=0`, edits installed files, re-runs, and checks the edits survive, `INSTANCE_ID` stays a single stable line, and the MOTD diversions outlast a `base-files` reinstall
 - `test_piped_install.sh` — pipes the installer through `bash -s` with `SKIP_BUN_APP=1` as an argument and `TEMPLATE_BASE_URL=file:///workspace/templates`, so the branch's templates are downloaded (Cloudflare included) before they reach `main`; checks that unknown arguments and an invalid `TEMPLATE_REF` are rejected, `--version` names the ref, and `--help` runs as non-root
 - `test_release_build.sh` — builds a pinned installer with `build-installer.sh 9.9.9`, checks `SHA256SUMS` and `--version`, runs it piped with verified `file://` templates, then checks a tampered template fails the re-run and leaves the installed file unchanged, and that `TEMPLATE_REF=main` skips verification with a warning
+- `test_fail_loudly.sh` — runs a copy of the repo with a broken `nginx-default.conf` and checks the installer exits non-zero with the `install failed at line N` message and no colour escapes off a terminal
 - `test_host_safety.sh` — rejects `FULL_UPGRADE=yes`, runs sshd on port 2222 and checks UFW limits `2222/tcp` instead of 22 with `apt-get upgrade`, then checks a `FULL_UPGRADE=1` re-run keeps an added rule and a changed default policy, and prints the reboot hint
 - `test_cloudflare.sh` — rejects `SKIP_CLOUDFLARE=yes`, checks the updater, timer and Nginx files after a default install, then runs the updater on a stubbed `CLOUDFLARE_IPS_SOURCE`: bad lists (HTML body, junk line, short list, empty family, a list `nginx -t` refuses) leave the lists and Nginx unchanged, a good list applies and reloads once, the access log shows the `CF-Connecting-IP` address, the `cloudflare-only.conf` include returns 403 to non-edge clients, and a re-run under the old `cloudflare-ip-filter.conf` does not enable real client IP
 
@@ -211,6 +213,8 @@ The project uses `shellcheck` for linting and `shfmt` for formatting:
 
 ```
 ubuntu-bun-server-setup/
+├── .editorconfig              # Indentation and shfmt options
+├── .shellcheckrc              # shellcheck options
 ├── .github/
 │   ├── dependabot.yml         # Weekly GitHub Actions updates
 │   └── workflows/
@@ -221,8 +225,10 @@ ubuntu-bun-server-setup/
 ├── install.sh                 # Main installation script (dev channel)
 ├── Makefile                   # Build and test automation
 ├── README.md                  # Project documentation
+├── CLAUDE.md                  # Notes for Claude Code
 ├── CONTRIBUTING.md            # This file
 ├── RELEASE.md                 # Release process
+├── SECURITY.md                # Reporting vulnerabilities
 ├── release.sh                 # Checked, atomic release (VERSION, tag, push)
 ├── VERSION                    # Current SemVer version
 ├── LICENSE                    # License information
@@ -284,7 +290,7 @@ For feature requests, please explain:
 
 ## Security
 
-If you discover a security vulnerability, please report it responsibly by contacting the maintainers directly rather than creating a public issue.
+If you discover a security vulnerability, please do not open a public issue. Report it privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

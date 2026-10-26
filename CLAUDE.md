@@ -387,6 +387,11 @@ Re-running must be safe and never clobber user edits:
   `install.sh`), one function per install step with a leading comment,
   `local` vars, colored output via `GREEN`/`YELLOW`/`RED`/`NC`.
 - Commit prefixes seen in history: `fix(scope):`, `refactor:`, `ci:`,
-  `release:`.
+  `release:`, `docs:`, `test(scope):`.
+- User docs: `README.md`, `CONTRIBUTING.md`, `RELEASE.md` and
+  `SECURITY.md`. Vulnerability reports go through GitHub private
+  vulnerability reporting (no email); README "Security" and CONTRIBUTING
+  link to `SECURITY.md`. Keep its supported-versions line (latest release
+  only) true.
 - `.claude/plans/` (plan links and completed copies) and `drafts/` hold
   local working notes; don't commit them.
