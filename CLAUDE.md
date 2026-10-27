@@ -257,6 +257,10 @@ Re-running must be safe and never clobber user edits:
   `22.04`, passed as a build arg and used as the image tag), starts one
   privileged container per test with the repo mounted read-only at
   `/workspace`, and runs `tests/docker/scripts/<test>.sh` inside it.
+- It runs every selected test, even after a failure, then prints
+  `N passed, M failed` and each failed label, and exits 1 if any failed.
+  `run_test` returns 1 and runs under `||`, so errexit is off inside it;
+  check each status explicitly there.
 - Scenarios: `test_root_guard` (non-root fails), `test_default` (full
   install, `curl` expects `"Hello Bun"` and `/api/x` → `"path":"/api/x"`,
   security headers, one `Cache-Control` on `/assets/`, env file `600` and

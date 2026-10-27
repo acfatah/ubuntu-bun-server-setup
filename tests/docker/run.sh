@@ -75,7 +75,7 @@ run_test() {
 
   if [[ $status -ne 0 ]]; then
     echo -e "${YELLOW}[tests]${NC} '$display' ${RED}FAILED${NC}" >&2
-    exit $status
+    return 1
   fi
   echo -e "${YELLOW}[tests]${NC} '$display' ${GREEN}passed${NC}"
 }
@@ -100,10 +100,22 @@ main() {
   fi
 
   build_image
-  local script
+  # Every test runs, so one flaky test cannot hide the rest. Called with
+  # ||, run_test runs without errexit; it checks each status itself.
+  local script display
+  local failed=()
   for script in "${scripts[@]}"; do
-    run_test "$script" "$(test_label "$script")"
+    display=$(test_label "$script")
+    run_test "$script" "$display" || failed+=("$display")
   done
+
+  echo -e "${YELLOW}[tests]${NC} $((${#scripts[@]} - ${#failed[@]})) passed, ${#failed[@]} failed"
+  if [[ ${#failed[@]} -gt 0 ]]; then
+    for display in "${failed[@]}"; do
+      echo -e "${YELLOW}[tests]${NC} ${RED}FAILED${NC}: $display" >&2
+    done
+    exit 1
+  fi
 }
 
 main "$@"
