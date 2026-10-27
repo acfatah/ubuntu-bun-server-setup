@@ -96,7 +96,7 @@ only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
 Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
 colours) and `set -Eeuo pipefail`.
 
-`main`: ERR trap → Ubuntu check → `apt-get upgrade` (`full-upgrade` with
+`main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `apt-get upgrade` (`full-upgrade` with
 `FULL_UPGRADE=1`) → base packages → UFW rules (no reset) → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
 `/usr/local/bin/bun`) → `bun-app` system user → sample app →
 `install_cloudflare` (updater, units, first fetch, `conf.d`, timer; first
@@ -276,7 +276,8 @@ Re-running must be safe and never clobber user edits:
   byte-identical, no temp file left; `TEMPLATE_REF=main` warns and skips
   verification),
   `test_fail_loudly` (broken `nginx-default.conf` in a copy of the repo
-  exits non-zero with the trap message, no colour escapes off-TTY),
+  exits non-zero with the trap message, no colour escapes off-TTY; then a
+  faked 20.04 `/etc/os-release` is refused before `Upgrading packages`),
   `test_host_safety` (`FULL_UPGRADE=yes` rejected, openssh-server on port
   2222 → `2222/tcp` limited and no `22/tcp`; extra rule and `allow`
   incoming policy survive a `FULL_UPGRADE=1` re-run; reboot hint),
@@ -306,7 +307,9 @@ Re-running must be safe and never clobber user edits:
   wrap the negation in a function, as `not_gt` in `release.bats` does.
 - `install.bats`: `replace_placeholder` (`\1`, `&`, `|`, newline, empty,
   mode and inode), `parse_args` toggles as arg and env, `TEMPLATE_REF`,
-  `NGINX_ROOT`; sourcing runs nothing, executed and piped runs still do.
+  `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
+  22.04, other distro, bad or missing `VERSION_ID`, missing file);
+  sourcing runs nothing, executed and piped runs still do.
 - `release.bats`: `increment_version`, `version_gt`, `validate_version`
   (leading zeros refused) and `build-installer.sh`'s version check.
 - `motd.bats`: copies `templates/motd.sh`, substitutes `__NGINX_ROOT__`

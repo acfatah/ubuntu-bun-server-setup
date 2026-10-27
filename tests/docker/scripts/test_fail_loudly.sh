@@ -34,3 +34,23 @@ fi
 
 # The failure is in the installer log too
 assert_file_contains /var/log/bun-installer.log "install failed at line"
+
+# Last: fake Ubuntu 20.04. /etc/os-release links to /usr/lib/os-release,
+# so write a real file and replace the link, never write through it.
+old_log=/root/old-ubuntu.log
+sed 's/^VERSION_ID=.*/VERSION_ID="20.04"/' /etc/os-release >/root/os-release.old
+mv -f /root/os-release.old /etc/os-release
+
+echo -e "${YELLOW}[test]${NC} Running installer on a faked Ubuntu 20.04"
+if bash /workspace/install.sh >"$old_log" 2>&1; then
+  cat "$old_log"
+  echo "${RED}Assertion failed:${NC} installer ran on Ubuntu 20.04" >&2
+  exit 1
+fi
+cat "$old_log"
+
+assert_file_contains "$old_log" "requires Ubuntu 22.04 or later. Detected: 20.04."
+if grep -q "Upgrading packages" "$old_log"; then
+  echo "${RED}Assertion failed:${NC} package work started before the refusal" >&2
+  exit 1
+fi
