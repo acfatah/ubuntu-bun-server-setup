@@ -26,7 +26,8 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
   available. It never resets UFW: existing rules are kept, and the default
   policy (deny incoming, allow outgoing) is set only while UFW is inactive.
 - Upgrades packages with `apt-get upgrade` (`FULL_UPGRADE=1` for
-  `full-upgrade`) and prints a reboot hint when one is required.
+  `full-upgrade`) and prints a reboot hint when one is required. A failed
+  `apt-get update` is retried up to three times, 10 seconds apart.
 - Installs a Cloudflare IP updater with a daily systemd timer, so Nginx logs
   the real client IP behind Cloudflare and can optionally refuse requests
   that bypass it (set `SKIP_CLOUDFLARE=1` to skip; see

@@ -96,7 +96,7 @@ only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
 Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
 colours) and `set -Eeuo pipefail`.
 
-`main`: ERR trap → Ubuntu check → `apt-get upgrade` (`full-upgrade` with
+`main`: ERR trap → Ubuntu check → `apt_update` (retried) → `apt-get upgrade` (`full-upgrade` with
 `FULL_UPGRADE=1`) → base packages → UFW rules (no reset) → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
 `/usr/local/bin/bun`) → `bun-app` system user → sample app →
 `install_cloudflare` (updater, units, first fetch, `conf.d`, timer; first
@@ -112,6 +112,12 @@ rewritten in `/etc/environment` → MOTD → summary.
   `install failed at line N (<function>)` once.
 - No `|| true` on essential steps. Each remaining one is benign and says
   why in a comment.
+- `apt_update` runs `apt-get update` with `Acquire::Retries=3`, up to
+  `APT_UPDATE_TRIES` (3) times, `APT_UPDATE_DELAY` (10 s) apart, logging
+  each retry; the last failure returns 1 and trips the trap (reported in
+  `apt_update_upgrade`). `Acquire::Retries` alone misses an InRelease
+  that downloads but fails verification. `test_host_safety` uses
+  `apt_update_retry` from `common.sh` for its own update.
 - `print_summary` checks `certbot --version`, `nginx` and (unless skipped)
   `bun-app` are active; it lists problems and returns 1, which `main`
   turns into `exit 1` without tripping the trap.
@@ -306,7 +312,8 @@ Re-running must be safe and never clobber user edits:
   wrap the negation in a function, as `not_gt` in `release.bats` does.
 - `install.bats`: `replace_placeholder` (`\1`, `&`, `|`, newline, empty,
   mode and inode), `parse_args` toggles as arg and env, `TEMPLATE_REF`,
-  `NGINX_ROOT`; sourcing runs nothing, executed and piped runs still do.
+  `NGINX_ROOT`, `apt_update` retries (`apt-get` and `sleep` stubbed as
+  functions); sourcing runs nothing, executed and piped runs still do.
 - `release.bats`: `increment_version`, `version_gt`, `validate_version`
   (leading zeros refused) and `build-installer.sh`'s version check.
 - `motd.bats`: copies `templates/motd.sh`, substitutes `__NGINX_ROOT__`

@@ -38,6 +38,9 @@ NGINX_ROOT=/var/www/app/dist
 LOG_FILE=/var/log/bun-installer.log
 USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]"
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
+# apt-get update attempts and the pause between them, in seconds
+APT_UPDATE_TRIES=3
+APT_UPDATE_DELAY=10
 # Colours only on a terminal; logs and CI output stay free of escapes
 if [[ -t 1 ]]; then
   GREEN=$(printf '\033[0;32m')
@@ -280,6 +283,21 @@ require_ubuntu() {
   fi
 }
 
+# Refreshes APT metadata, retrying the whole update: Acquire::Retries
+# covers failed downloads, not an InRelease that downloads but then
+# fails verification (a mirror caught mid-sync).
+apt_update() {
+  local try
+  for ((try = 1; try <= APT_UPDATE_TRIES; try++)); do
+    apt-get -qqy -o Acquire::Retries=3 update && return 0
+    ((try < APT_UPDATE_TRIES)) || break
+    echo -e "${YELLOW}apt-get update failed (attempt ${try}/${APT_UPDATE_TRIES}); retrying in ${APT_UPDATE_DELAY}s...${NC}" >&2
+    sleep "$APT_UPDATE_DELAY"
+  done
+  echo -e "${RED}apt-get update failed after ${APT_UPDATE_TRIES} attempts.${NC}" >&2
+  return 1
+}
+
 # Updates APT metadata and upgrades packages non-interactively. Plain
 # upgrade by default (never removes packages); full-upgrade with
 # FULL_UPGRADE=1. --force-confdef/--force-confold keep existing configs.
@@ -288,7 +306,7 @@ apt_update_upgrade() {
   full_upgrade && mode=full-upgrade
 
   export DEBIAN_FRONTEND=noninteractive
-  apt-get -qqy update
+  apt_update
   echo -e "${GREEN}Upgrading packages (apt-get ${mode})...${NC}"
   apt-get -qqy -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' "$mode"
 }

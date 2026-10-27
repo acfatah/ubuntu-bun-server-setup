@@ -175,3 +175,48 @@ check_replace() {
   parse_args SKIP_BUN_APP=1
   [ "$NGINX_ROOT" = /var/www/html ]
 }
+
+# Stubs apt-get and sleep for apt_update: apt-get fails its first $1 calls,
+# and both log their arguments, one call per line.
+stub_apt() {
+  APT_FAILS=$1
+  APT_LOG=$BATS_TEST_TMPDIR/apt-get
+  SLEEP_LOG=$BATS_TEST_TMPDIR/sleep
+  : >"$APT_LOG"
+  : >"$SLEEP_LOG"
+  apt-get() {
+    echo "$*" >>"$APT_LOG"
+    [ "$(wc -l <"$APT_LOG")" -gt "$APT_FAILS" ]
+  }
+  sleep() { echo "$*" >>"$SLEEP_LOG"; }
+  APT_UPDATE_DELAY=7
+}
+
+@test "apt_update: succeeds on the first try without retrying" {
+  stub_apt 0
+  run apt_update
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$APT_LOG")" -eq 1 ]
+  [[ $(cat "$APT_LOG") == *Acquire::Retries=3*update ]]
+  [ ! -s "$SLEEP_LOG" ]
+  [[ $output != *retrying* ]]
+}
+
+@test "apt_update: recovers on the third try" {
+  stub_apt 2
+  run apt_update
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$APT_LOG")" -eq 3 ]
+  [[ $output == *"attempt 1/3"* ]]
+  [[ $output == *"attempt 2/3"* ]]
+  [ "$(cat "$SLEEP_LOG")" = $'7\n7' ]
+}
+
+@test "apt_update: fails after the last try, with no sleep after it" {
+  stub_apt 99
+  run apt_update
+  [ "$status" -eq 1 ]
+  [ "$(wc -l <"$APT_LOG")" -eq 3 ]
+  [ "$(wc -l <"$SLEEP_LOG")" -eq 2 ]
+  [[ $output == *"failed after 3 attempts"* ]]
+}

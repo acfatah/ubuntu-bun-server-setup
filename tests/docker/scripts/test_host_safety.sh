@@ -32,7 +32,7 @@ grep -q "Invalid FULL_UPGRADE=yes" <<<"$out"
 # sshd on a custom port: the installer must limit it, not 22 (S5)
 echo -e "${YELLOW}[test]${NC} Installing openssh-server on port 2222"
 export DEBIAN_FRONTEND=noninteractive
-apt-get -qqy update
+apt_update_retry
 apt-get -qqy install openssh-server >/dev/null
 echo "Port 2222" >/etc/ssh/sshd_config.d/99-test.conf
 

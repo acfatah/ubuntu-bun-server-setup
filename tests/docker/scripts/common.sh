@@ -25,6 +25,20 @@ run_installer() {
   env "${env_args[@]}" bash "$INSTALLER" | tee "$LOG_DIR/install_$(date +%s).log"
 }
 
+# apt-get update with the installer's retry (3 tries, 10 s apart), for
+# test steps that install packages themselves; a flaky mirror is not a
+# test failure.
+apt_update_retry() {
+  local try
+  for try in 1 2 3; do
+    apt-get -qqy -o Acquire::Retries=3 update && return 0
+    ((try < 3)) || break
+    echo -e "${YELLOW}[test]${NC} apt-get update failed (attempt ${try}/3); retrying in 10s..." >&2
+    sleep 10
+  done
+  return 1
+}
+
 assert_dir_exists() {
   local dir=$1
   if [[ ! -d "$dir" ]]; then
