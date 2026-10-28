@@ -36,6 +36,7 @@ TEMPLATE_SHA256=''
 APP_DIR=/srv/app
 NGINX_ROOT=/var/www/app/dist
 LOG_FILE=/var/log/bun-installer.log
+OS_RELEASE=/etc/os-release
 USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]"
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
 # apt-get update attempts and the pause between them, in seconds
@@ -268,17 +269,27 @@ require_root() {
   fi
 }
 
-# Verifies the host is Ubuntu by reading /etc/os-release.
+# Verifies the host is Ubuntu 22.04 or later by reading $OS_RELEASE.
+# ID and VERSION_ID are local, so sourcing the file sets no globals.
 require_ubuntu() {
-  if [[ -f /etc/os-release ]]; then
-    # shellcheck source=/dev/null
-    . /etc/os-release
-    if [[ ${ID:-} != "ubuntu" ]]; then
-      echo -e "${RED}This script targets Ubuntu. Detected: ${ID:-unknown}.${NC}" >&2
-      exit 1
-    fi
-  else
-    echo -e "${RED}/etc/os-release not found; cannot verify Ubuntu.${NC}" >&2
+  local ID='' VERSION_ID=''
+  if [[ ! -f $OS_RELEASE ]]; then
+    echo -e "${RED}${OS_RELEASE} not found; cannot verify Ubuntu.${NC}" >&2
+    exit 1
+  fi
+  # shellcheck source=/dev/null
+  . "$OS_RELEASE"
+  if [[ $ID != "ubuntu" ]]; then
+    echo -e "${RED}This script targets Ubuntu. Detected: ${ID:-unknown}.${NC}" >&2
+    exit 1
+  fi
+  if [[ ! $VERSION_ID =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+    echo -e "${RED}Cannot read the Ubuntu version (VERSION_ID=${VERSION_ID}).${NC}" >&2
+    exit 1
+  fi
+  local major=$((10#${BASH_REMATCH[1]})) minor=$((10#${BASH_REMATCH[2]}))
+  if ((major < 22 || (major == 22 && minor < 4))); then
+    echo -e "${RED}This installer requires Ubuntu 22.04 or later. Detected: ${VERSION_ID}.${NC}" >&2
     exit 1
   fi
 }

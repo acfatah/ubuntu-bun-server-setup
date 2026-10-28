@@ -176,6 +176,57 @@ check_replace() {
   [ "$NGINX_ROOT" = /var/www/html ]
 }
 
+# Writes a fake os-release with the given lines and points OS_RELEASE at it.
+fake_os_release() {
+  OS_RELEASE=$BATS_TEST_TMPDIR/os-release
+  printf '%s\n' "$@" >"$OS_RELEASE"
+}
+
+@test "require_ubuntu: 20.04 is refused" {
+  fake_os_release 'ID=ubuntu' 'VERSION_ID="20.04"'
+  run require_ubuntu
+  [ "$status" -eq 1 ]
+  [[ $output == *"22.04 or later"* ]]
+  [[ $output == *"Detected: 20.04."* ]]
+}
+
+@test "require_ubuntu: 22.04 and later pass" {
+  local v
+  for v in 22.04 24.04 26.04; do
+    fake_os_release 'ID=ubuntu' "VERSION_ID=\"$v\""
+    run require_ubuntu
+    [ "$status" -eq 0 ] || {
+      echo "refused $v: $output"
+      return 1
+    }
+  done
+}
+
+@test "require_ubuntu: another distribution is refused" {
+  fake_os_release 'ID=debian' 'VERSION_ID="12"'
+  run require_ubuntu
+  [ "$status" -eq 1 ]
+  [[ $output == *"targets Ubuntu"* ]]
+}
+
+@test "require_ubuntu: a missing or malformed VERSION_ID is refused" {
+  fake_os_release 'ID=ubuntu'
+  run require_ubuntu
+  [ "$status" -eq 1 ]
+  [[ $output == *"Cannot read"* ]]
+  fake_os_release 'ID=ubuntu' 'VERSION_ID="22"'
+  run require_ubuntu
+  [ "$status" -eq 1 ]
+  [[ $output == *"Cannot read"* ]]
+}
+
+@test "require_ubuntu: a missing os-release is refused" {
+  OS_RELEASE=$BATS_TEST_TMPDIR/absent
+  run require_ubuntu
+  [ "$status" -eq 1 ]
+  [[ $output == *"not found"* ]]
+}
+
 # Stubs apt-get and sleep for apt_update: apt-get fails its first $1 calls,
 # and both log their arguments, one call per line.
 stub_apt() {

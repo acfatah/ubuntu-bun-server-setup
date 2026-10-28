@@ -40,7 +40,7 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 
 ## Prerequisites
 
-- Ubuntu 22.04+ or 24.04, run as root or with sudo.
+- Ubuntu 22.04 or later, run as root or with sudo. Older releases are refused before any package is installed.
 - Internet access for package and snap installs.
 
 
