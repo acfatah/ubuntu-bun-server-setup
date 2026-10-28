@@ -129,7 +129,7 @@ tests/docker/run.sh test_release_build
 tests/docker/run.sh test_fail_loudly
 ```
 
-The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
+The `.sh` suffix is optional; both `test_default` and `test_default.sh` work. Several names run in one call, e.g. `tests/docker/run.sh test_root_guard test_default`. The runner runs every selected test even after one fails, then prints a pass/fail count and names each failed test; it exits non-zero if any failed.
 
 ### Test Scenarios
 
