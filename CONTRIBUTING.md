@@ -95,8 +95,8 @@ Pure functions and the MOTD script have a [bats-core](https://github.com/bats-co
 
 ```bash
 make test-unit
-# without a local bats (v1.14.0, as in CI):
-make test-unit BATS='docker run --rm -v "$PWD:/code:ro" -w /code bats/bats:1.14.0'
+# without a local bats (v1.14.0, as in CI); make turns $$PWD into $PWD:
+make test-unit BATS='docker run --rm -v "$$PWD:/code:ro" -w /code bats/bats:1.14.0'
 ```
 
 - `install.bats` sources `install.sh` (its install steps run only when the script is executed, not sourced) and covers `replace_placeholder`, `parse_args`, the toggles and `TEMPLATE_REF` validation
