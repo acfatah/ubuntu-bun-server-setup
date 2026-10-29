@@ -25,6 +25,8 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
   absent), allows HTTP (80) and HTTPS (443) via the 'Nginx Full' profile when
   available. It never resets UFW: existing rules are kept, and the default
   policy (deny incoming, allow outgoing) is set only while UFW is inactive.
+  If you disable UFW after an install, re-runs leave it disabled
+  (`SKIP_UFW=1` leaves UFW untouched altogether).
 - Upgrades packages with `apt-get upgrade` (`FULL_UPGRADE=1` for
   `full-upgrade`) and prints a reboot hint when one is required. A failed
   `apt-get update` is retried up to three times, 10 seconds apart.
@@ -190,6 +192,17 @@ installer run is in progress` before it changes anything.
   none is removed. If you later move sshd to another port, re-running limits
   the new port, but the old rule stays; remove it yourself, for example
   `sudo ufw delete limit 22/tcp`.
+- UFW's on/off state. Each run records what it did as `ufw=` in
+  `/var/lib/app-info/application.info`: `enabled`, `skipped`
+  (`SKIP_UFW=1`) or `left-disabled`. If UFW is inactive and an earlier
+  run enabled it (or the host was installed before this record existed),
+  the installer leaves it off and prints a note; run `sudo ufw enable`
+  and re-run to have it managed again. After a `SKIP_UFW=1` run, a run
+  without the toggle enables UFW.
+- The MOTD's UFW line. New installs show the live state (`UFW is active`,
+  `UFW is inactive` or `UFW status unknown`); an existing
+  `/etc/update-motd.d/00-custom` keeps its fixed `UFW is enabled` line
+  until you delete it and re-run.
 
 Because of this, template improvements in newer releases reach new installs
 only. To pick one up on an existing host, delete the file (or, for the
@@ -535,7 +548,9 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
   content, that the stock Nginx site is kept and no proxy snippet or map
   file is installed, that the Cloudflare real-IP config is installed with
-  the stock site untouched, and that a re-run keeps a custom `index.html`.
+  the stock site untouched, and that `SKIP_UFW=1` leaves UFW inactive with
+  no rules. A re-run without `SKIP_UFW` keeps a custom `index.html` and
+  enables UFW.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
   `SKIP_BUN_APP=0`, edits installed files, checks a run is refused and
   changes nothing while the lock is held, re-runs, and checks the edits
@@ -565,6 +580,8 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   the default run uses `apt-get upgrade`. After adding a rule and changing
   the default incoming policy, a `FULL_UPGRADE=1` re-run keeps both, uses
   `full-upgrade`, prints the reboot hint, and adds no duplicate SSH rule.
+  It also rejects `SKIP_UFW=yes`, and after `ufw disable` a third run
+  leaves UFW disabled.
 - `test_cloudflare.sh` — rejects `SKIP_CLOUDFLARE=yes`, checks the updater,
   enabled timer, generated lists and geo after a default install. Against a
   stubbed source (`CLOUDFLARE_IPS_SOURCE`), an HTML body, a junk line, a
@@ -606,6 +623,11 @@ Pass toggles as environment variables or as `KEY=VALUE` arguments to
   prints `Reboot required to finish package upgrades: sudo reboot` when
   `/var/run/reboot-required` exists.
 
+- `SKIP_UFW=1` — Leave UFW untouched: no rules, no default policy, no
+  `ufw enable`. Use it when another firewall or your cloud's security
+  groups filter traffic. A later run without it enables UFW; see
+  [Re-running the installer](#re-running-the-installer).
+
 Example:
 
 ```bash
@@ -613,6 +635,7 @@ sudo SKIP_BUN_APP=1 bash install.sh
 # or
 sudo bash install.sh SKIP_BUN_APP=1 FULL_UPGRADE=1
 sudo bash install.sh SKIP_CLOUDFLARE=1
+sudo bash install.sh SKIP_UFW=1
 ```
 
 ## Notes

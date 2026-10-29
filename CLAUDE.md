@@ -86,8 +86,8 @@ The result is written back with `cat >`, so the file keeps its inode,
 mode and owner. Adding
 a token means editing both the template and the matching
 `replace_placeholder` call. `__INSTANCE_ID__` lives in
-`templates/bun-app.env`, not in the unit. `__INSTALLER_VERSION__` and
-`__TEMPLATE_REF__` are in `templates/application.info`.
+`templates/bun-app.env`, not in the unit. `__INSTALLER_VERSION__`,
+`__TEMPLATE_REF__` and `__UFW_STATE__` are in `templates/application.info`.
 
 ### Install flow (`main`)
 
@@ -103,12 +103,12 @@ Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
 colours) and `set -Eeuo pipefail`.
 
 `main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `apt_update` (retried) → `apt-get upgrade` (`full-upgrade` with
-`FULL_UPGRADE=1`) → base packages → UFW rules (no reset) → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
+`FULL_UPGRADE=1`) → base packages → UFW rules (no reset; see Idempotency) → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
 `/usr/local/bin/bun`) → `bun-app` system user → sample app →
 `install_cloudflare` (updater, units, first fetch, `conf.d`, timer; first
 in `configure_nginx`, so its `nginx -t` sees the old site) → Nginx config →
 `nginx -t` → restart → systemd unit +
-`/etc/bun-app.env` + `/srv/app/data` symlink → `/var/lib/app-info/application.info` → `INSTANCE_ID` line
+`/etc/bun-app.env` + `/srv/app/data` symlink → `APP_INFO_FILE` (`/var/lib/app-info/application.info`) → `INSTANCE_ID` line
 rewritten in `/etc/environment` → MOTD → summary.
 
 ### Failure handling
@@ -151,18 +151,22 @@ rewritten in `/etc/environment` → MOTD → summary.
   under `/root`; don't use it for permission probes.
 - `create_app_user` and the data symlink are skipped with `SKIP_BUN_APP=1`.
 
-### Toggles (`SKIP_BUN_APP`, `SKIP_CLOUDFLARE`, `FULL_UPGRADE`)
+### Toggles (`SKIP_BUN_APP`, `SKIP_CLOUDFLARE`, `FULL_UPGRADE`, `SKIP_UFW`)
 
 - Set as env var or `KEY=VALUE` arg (`parse_args`, allowlisted; unknown
   args exit 1 before the root check).
 - Only **`1`** enables; checks go through `skip_app` / `skip_cloudflare` /
-  `full_upgrade`. `parse_args` accepts empty, `0`, `false` (off) and `1`
-  for all three; any
+  `full_upgrade` / `skip_ufw`. `parse_args` accepts empty, `0`, `false`
+  (off) and `1` for all four; any
   other value exits 1 with `Invalid <NAME>=<value>` before the root check.
-  Adding a toggle means extending both loops in `parse_args` and `USAGE`.
+  Adding a toggle means extending both loops in `parse_args`, `USAGE`,
+  `print_help`, the header comment and the three toggle loops in
+  `install.bats`.
 - `FULL_UPGRADE=1` swaps `apt-get upgrade` for `full-upgrade`. The summary
   prints a reboot hint when `/var/run/reboot-required` exists (a note, not
   a problem: the return value is unchanged).
+- `SKIP_UFW=1` leaves UFW untouched (no rule, policy or enable) and
+  records `ufw="skipped"`.
 
 ### `SKIP_BUN_APP` mode
 
@@ -251,13 +255,25 @@ Re-running must be safe and never clobber user edits:
   `/var/lib/bun-installer/motd-disabled/` (`dpkg-divert --no-rename` + `mv`:
   `--rename` warns on Essential `base-files`). They are conffiles, so a
   plain `chmod -x` survives a reinstall, likely not an upstream change.
-- `application.info` is rewritten every run; `bun-app` user and
+- `application.info` is rewritten every run (except its `ufw=` record
+  steers the next run's UFW; see below); `bun-app` user and
   `/srv/app/data` only created if absent.
 - UFW is never reset. Default policy is set only while `ufw status` is
   `inactive`; rules are re-added (an existing one is skipped, exit 0) and
   none removed. `ssh_ports` limits every `port` from `sshd -T` (creates
   `/run/sshd` first: socket-activated 24.04 hosts lack it), falling back
   to 22 with a notice.
+- UFW is enabled only when the operator has not turned it off.
+  `configure_ufw` runs before `write_application_info`, so
+  `previous_ufw_state` reads the **earlier** run's `ufw=` line (empty: no
+  file; `legacy`: file without the line) and sets `UFW_STATE`:
+  `SKIP_UFW=1` → `skipped`, nothing touched; active → rules added,
+  `enabled`; inactive with no file or `skipped` → policy, rules, enable,
+  `enabled`; inactive after `enabled`, `left-disabled` or `legacy` →
+  nothing touched, a note, `left-disabled`. A crashed first run writes no
+  file, so its re-run still enables.
+- The MOTD (`templates/motd.sh`) prints the live `ufw status`: active,
+  inactive or unknown. An existing `00-custom` keeps its fixed line.
 - Consequence: template improvements reach new installs only.
 
 ## Tests (`tests/docker/`)
@@ -279,7 +295,9 @@ Re-running must be safe and never clobber user edits:
   on `127.0.0.1:3000`, `22/tcp` limited without sshd),
   `test_skip_sample` (`SKIP_BUN_APP=1`, expects `"Hello World"`, no
   `bun-app` user, stock site kept, no snippet or map file, Cloudflare
-  `conf.d` present and real-IP-only note, re-run keeps a custom `index.html`),
+  `conf.d` present and real-IP-only note; first run with `SKIP_UFW=1`:
+  UFW inactive, no rules added, `ufw="skipped"`; re-run keeps a custom
+  `index.html` and enables UFW, `ufw="enabled"`),
   `test_idempotent` (`SKIP_BUN_APP=yes` rejected, `=0` installs, a run
   while the test shell holds the lock exits 1 with the log and
   `/etc/environment` unchanged, edits survive a re-run (unit, env file, site, snippet, map, Cloudflare updater,
@@ -300,7 +318,9 @@ Re-running must be safe and never clobber user edits:
   faked 20.04 `/etc/os-release` is refused before `Upgrading packages`),
   `test_host_safety` (`FULL_UPGRADE=yes` rejected, openssh-server on port
   2222 → `2222/tcp` limited and no `22/tcp`; extra rule and `allow`
-  incoming policy survive a `FULL_UPGRADE=1` re-run; reboot hint),
+  incoming policy survive a `FULL_UPGRADE=1` re-run; reboot hint;
+  `SKIP_UFW=yes` rejected; after `ufw disable` a third run leaves UFW
+  inactive with a note and `ufw="left-disabled"`),
   `test_cloudflare` (`SKIP_CLOUDFLARE=yes` rejected; files, enabled timer,
   geo in `nginx -T`; stubbed `CLOUDFLARE_IPS_SOURCE`: HTML body, junk
   line, short list, empty family and an `nginx -t` failure all exit
@@ -330,13 +350,15 @@ Re-running must be safe and never clobber user edits:
   `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
   22.04, other distro, bad or missing `VERSION_ID`, missing file),
   `apt_update` retries (`apt-get` and `sleep` stubbed as functions),
-  `take_lock` free and held (`LOCK_FILE` in `$BATS_TEST_TMPDIR`);
+  `take_lock` free and held (`LOCK_FILE` in `$BATS_TEST_TMPDIR`),
+  `previous_ufw_state` and each `configure_ufw` decision (`ufw` and
+  `ssh_ports` stubbed as functions, `APP_INFO_FILE` in the tmpdir);
   sourcing runs nothing, executed and piped runs still do.
 - `release.bats`: `increment_version`, `version_gt`, `validate_version`
   (leading zeros refused) and `build-installer.sh`'s version check.
 - `motd.bats`: copies `templates/motd.sh`, substitutes `__NGINX_ROOT__`
-  with `replace_placeholder`, runs it with `bun`/`nginx`/`hostname` stubs
-  first on `PATH`.
+  with `replace_placeholder`, runs it with `bun`/`nginx`/`hostname`/`ufw`
+  stubs first on `PATH` (UFW line: active, inactive, failing `ufw`).
 - Runs on GNU tools (CI, host) and busybox (`bats/bats` image); keep
   both green. `tests/release/run.sh` stays plain bash: it needs `git`,
   which the `bats/bats` image lacks.

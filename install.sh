@@ -15,14 +15,15 @@ set -Eeuo pipefail
 #   SKIP_BUN_APP=1    -> skip creating /srv/app Bun app
 #   SKIP_CLOUDFLARE=1 -> skip the Cloudflare IP updater and Nginx files
 #   FULL_UPGRADE=1    -> apt-get full-upgrade instead of upgrade
+#   SKIP_UFW=1        -> leave UFW untouched (rules, policy and state)
 #
 # Template source (env var only):
 #   TEMPLATE_REF=<ref>      -> git ref to fetch templates from
 #   TEMPLATE_BASE_URL=<url> -> templates directory URL (mirror, file://)
 #
 # Usage:
-#   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]
-#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]
+#   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UFW=1]
+#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UFW=1]
 #   bash install.sh --version | --help
 # ==============================================================================
 
@@ -38,7 +39,10 @@ NGINX_ROOT=/var/www/app/dist
 LOG_FILE=/var/log/bun-installer.log
 LOCK_FILE=/run/lock/bun-installer.lock
 OS_RELEASE=/etc/os-release
-USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]"
+APP_INFO_FILE=/var/lib/app-info/application.info
+# What configure_ufw did this run; recorded as ufw= in APP_INFO_FILE
+UFW_STATE=""
+USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UFW=1]"
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
 # apt-get update attempts and the pause between them, in seconds
 APT_UPDATE_TRIES=3
@@ -137,6 +141,7 @@ Toggles (KEY=VALUE argument or env var; only 1 enables):
   SKIP_BUN_APP=1     skip the sample app, its user and its unit
   SKIP_CLOUDFLARE=1  skip the Cloudflare IP updater and Nginx files
   FULL_UPGRADE=1     apt-get full-upgrade instead of upgrade
+  SKIP_UFW=1         leave UFW untouched (rules, policy and state)
 
 Template source (env var only):
   TEMPLATE_REF=<ref>       git ref to fetch templates from (default: ${INSTALLER_REF})
@@ -209,6 +214,11 @@ full_upgrade() {
   [[ ${FULL_UPGRADE:-} == 1 ]]
 }
 
+# True when UFW is left untouched.
+skip_ufw() {
+  [[ ${SKIP_UFW:-} == 1 ]]
+}
+
 # Applies KEY=VALUE arguments as toggles; only known keys are accepted.
 parse_args() {
   local arg name
@@ -237,6 +247,9 @@ parse_args() {
       FULL_UPGRADE=*)
         FULL_UPGRADE="${arg#*=}"
         ;;
+      SKIP_UFW=*)
+        SKIP_UFW="${arg#*=}"
+        ;;
       *)
         echo -e "${RED}Unknown argument: $arg${NC}" >&2
         echo "$USAGE" >&2
@@ -246,7 +259,7 @@ parse_args() {
   done
 
   # Env var or argument; a typo like "yes" must not silently fall back
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW; do
     case ${!name:-} in
       '' | 0 | false | 1) ;;
       *)
@@ -348,36 +361,66 @@ ssh_ports() {
   echo "$ports"
 }
 
+# Prints the ufw= state an earlier run recorded in APP_INFO_FILE: nothing
+# without the file, "legacy" for a file from before the record existed.
+previous_ufw_state() {
+  local state
+  [[ -f $APP_INFO_FILE ]] || return 0
+  state=$(sed -n 's/^ufw="\(.*\)"$/\1/p' "$APP_INFO_FILE")
+  echo "${state:-legacy}"
+}
+
 # Adds UFW rules without resetting: limit every sshd port, allow
 # HTTP/HTTPS (the 'Nginx Full' profile when available). The default
 # policy (deny incoming, allow outgoing) is set only while UFW is
 # inactive, so rules and policy changed since are kept on a re-run.
+# An inactive UFW is enabled only on a first install or after an earlier
+# SKIP_UFW=1 run; once enabled, an operator who disables it keeps it off.
+# Sets UFW_STATE to enabled, skipped or left-disabled.
 configure_ufw() {
   local port
 
+  if skip_ufw; then
+    UFW_STATE=skipped
+    echo -e "${YELLOW}SKIP_UFW=1: UFW left untouched (rules, policy and state).${NC}"
+    return
+  fi
+
   echo -e "${GREEN}Configuring UFW (limit sshd port(s), allow 'Nginx Full'; existing rules kept)...${NC}"
 
-  if ufw --version >/dev/null 2>&1; then
-    # Captured first: grep -q in a pipe could SIGPIPE ufw under pipefail
-    if [[ $(ufw status) == "Status: inactive"* ]]; then
-      ufw default deny incoming
-      ufw default allow outgoing
-    fi
-
-    for port in $(ssh_ports); do
-      ufw limit "$port/tcp"
-    done
-
-    # Allow Nginx HTTP+HTTPS profile if available, otherwise explicit ports
-    if ufw app list 2>/dev/null | grep -q "Nginx Full"; then
-      ufw allow 'Nginx Full'
-    else
-      ufw allow 80/tcp
-      ufw allow 443/tcp
-    fi
-
-    ufw --force enable
+  if ! ufw --version >/dev/null 2>&1; then
+    UFW_STATE=skipped
+    return
   fi
+
+  # Captured first: grep -q in a pipe could SIGPIPE ufw under pipefail
+  if [[ $(ufw status) == "Status: inactive"* ]]; then
+    case $(previous_ufw_state) in
+      '' | skipped) ;;
+      *)
+        UFW_STATE=left-disabled
+        echo -e "${YELLOW}UFW is inactive but an earlier run enabled it; left disabled. Run 'ufw enable' and re-run to manage it again.${NC}"
+        return
+        ;;
+    esac
+    ufw default deny incoming
+    ufw default allow outgoing
+  fi
+
+  for port in $(ssh_ports); do
+    ufw limit "$port/tcp"
+  done
+
+  # Allow Nginx HTTP+HTTPS profile if available, otherwise explicit ports
+  if ufw app list 2>/dev/null | grep -q "Nginx Full"; then
+    ufw allow 'Nginx Full'
+  else
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+  fi
+
+  ufw --force enable
+  UFW_STATE=enabled
 }
 
 # Installs Certbot via snap, removing any apt version to avoid conflicts.
@@ -607,14 +650,12 @@ create_systemd_service() {
   fi
 }
 
-# Emits build and environment metadata to /var/lib/app-info/application.info.
+# Emits build and environment metadata to APP_INFO_FILE.
 # Values include distro info and Bun version if available.
 # Rewritten on every run: it records the latest install, not user data.
 write_application_info() {
   echo -e "${GREEN}Writing application metadata...${NC}"
-  local info_dir="/var/lib/app-info"
-  mkdir -p "$info_dir"
-  local info_file="$info_dir/application.info"
+  local info_file=$APP_INFO_FILE
   local build_date
   build_date=$(date +%Y-%m-%d)
   local distro
@@ -641,6 +682,7 @@ write_application_info() {
   replace_placeholder "$info_file" "__APPLICATION_VERSION__" "$application_version"
   replace_placeholder "$info_file" "__INSTALLER_VERSION__" "$INSTALLER_VERSION"
   replace_placeholder "$info_file" "__TEMPLATE_REF__" "$template_ref"
+  replace_placeholder "$info_file" "__UFW_STATE__" "$UFW_STATE"
 }
 
 # Records INSTANCE_ID in /etc/environment as exactly one line; also
