@@ -91,8 +91,12 @@ a token means editing both the template and the matching
 
 ### Install flow (`main`)
 
-Top level: `parse_args` → root check → `start_log` → `main 2>&1 | tee -a
-/var/log/bun-installer.log` (`pipefail` carries `main`'s status). It runs
+Top level: `parse_args` → root check → `take_lock` → `start_log` → `main
+2>&1 | tee -a /var/log/bun-installer.log` (`pipefail` carries `main`'s
+status). `take_lock` holds `flock -n` on fd 9 of `LOCK_FILE`
+(`/run/lock/bun-installer.lock`) for the whole run (`main` and `tee`
+inherit it); a second run exits 1 before the log header. `--help` and
+`--version` exit in `parse_args`, so they take no lock. It runs
 only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
 `BASH_SOURCE`), false when sourced, so unit tests can source the script.
 Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
@@ -124,6 +128,9 @@ rewritten in `/etc/environment` → MOTD → summary.
   `bun-app` are active; it lists problems and returns 1, which `main`
   turns into `exit 1` without tripping the trap.
 - Colours are empty unless stdout is a TTY (decided before the pipe).
+- A run refused by `take_lock` changes nothing, not even the log.
+  Gotcha: a process forked during the run that outlives it would keep
+  fd 9 and the lock; services start through `systemctl`, so none does.
 
 ### Service user and sandbox
 
@@ -273,8 +280,9 @@ Re-running must be safe and never clobber user edits:
   `test_skip_sample` (`SKIP_BUN_APP=1`, expects `"Hello World"`, no
   `bun-app` user, stock site kept, no snippet or map file, Cloudflare
   `conf.d` present and real-IP-only note, re-run keeps a custom `index.html`),
-  `test_idempotent` (`SKIP_BUN_APP=yes` rejected, `=0` installs, edits
-  survive a re-run (unit, env file, site, snippet, map, Cloudflare updater,
+  `test_idempotent` (`SKIP_BUN_APP=yes` rejected, `=0` installs, a run
+  while the test shell holds the lock exits 1 with the log and
+  `/etc/environment` unchanged, edits survive a re-run (unit, env file, site, snippet, map, Cloudflare updater,
   units, `conf.d` file and snippet, MOTD), one stable `INSTANCE_ID` in `/etc/environment`, the env file and
   the process, MOTD diversions survive a
   `base-files` reinstall), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
@@ -321,7 +329,8 @@ Re-running must be safe and never clobber user edits:
   mode and inode), `parse_args` toggles as arg and env, `TEMPLATE_REF`,
   `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
   22.04, other distro, bad or missing `VERSION_ID`, missing file),
-  `apt_update` retries (`apt-get` and `sleep` stubbed as functions);
+  `apt_update` retries (`apt-get` and `sleep` stubbed as functions),
+  `take_lock` free and held (`LOCK_FILE` in `$BATS_TEST_TMPDIR`);
   sourcing runs nothing, executed and piped runs still do.
 - `release.bats`: `increment_version`, `version_gt`, `validate_version`
   (leading zeros refused) and `build-installer.sh`'s version check.

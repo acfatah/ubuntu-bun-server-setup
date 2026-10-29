@@ -36,6 +36,7 @@ TEMPLATE_SHA256=''
 APP_DIR=/srv/app
 NGINX_ROOT=/var/www/app/dist
 LOG_FILE=/var/log/bun-installer.log
+LOCK_FILE=/run/lock/bun-installer.lock
 OS_RELEASE=/etc/os-release
 USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1]"
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
@@ -743,6 +744,17 @@ ${reboot_line}
 EOF
 }
 
+# Takes an exclusive lock on fd 9 for the whole run, so two runs (say
+# cloud-init and an operator) never interleave. fd 9 is inherited by main
+# and tee; the kernel releases the lock when the last of them exits.
+take_lock() {
+  exec 9>"$LOCK_FILE"
+  if ! flock -n 9; then
+    echo -e "${RED}Another installer run is in progress (lock: ${LOCK_FILE}).${NC}" >&2
+    exit 1
+  fi
+}
+
 # Opens the installer log (root:adm, 640) and appends a run header.
 start_log() {
   touch "$LOG_FILE"
@@ -785,6 +797,8 @@ main() {
 if [[ ${BASH_SOURCE[0]:-$0} == "$0" ]]; then
   parse_args "$@"
   require_root
+  # Before the log header, so a refused run leaves the log untouched
+  take_lock
   start_log "$@"
   # pipefail carries main's exit status; tee is waited for, so no log loss
   main 2>&1 | tee -a "$LOG_FILE"

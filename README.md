@@ -35,7 +35,8 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 - Optionally creates a sample Bun app at `/srv/app` and enables the bun-app service 
   (set `SKIP_BUN_APP=1` to skip; Ubuntu's stock Nginx site is then kept).
 - Safe to re-run: files you may have edited are kept (see
-  [Re-running the installer](#re-running-the-installer)).
+  [Re-running the installer](#re-running-the-installer)). A second run
+  started while one is in progress exits 1 and changes nothing.
 - Intended for provisioning Ubuntu servers (22.04+); run as root/sudo with internet access.
 
 ## Prerequisites
@@ -161,7 +162,10 @@ are not `KEY=VALUE` arguments; with `sudo`, put them after it, as in
 ## Re-running the installer
 
 Re-running upgrades packages and Bun, and keeps what you changed. Each kept
-file is reported as `Kept existing <path>`:
+file is reported as `Kept existing <path>`. Only one run at a time: a run
+holds `/run/lock/bun-installer.lock`, and another run started meanwhile
+(say, an operator while cloud-init still installs) exits 1 with `Another
+installer run is in progress` before it changes anything.
 
 - `/etc/systemd/system/bun-app.service` and `/etc/bun-app.env`.
 - `/etc/nginx/sites-available/default`, while its first line is the
@@ -533,7 +537,8 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   file is installed, that the Cloudflare real-IP config is installed with
   the stock site untouched, and that a re-run keeps a custom `index.html`.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
-  `SKIP_BUN_APP=0`, edits installed files, re-runs, and checks the edits
+  `SKIP_BUN_APP=0`, edits installed files, checks a run is refused and
+  changes nothing while the lock is held, re-runs, and checks the edits
   survive, `INSTANCE_ID` stays a single stable line (also in
   `/etc/bun-app.env` and the process environment), and the MOTD
   diversions outlast a `base-files` reinstall.

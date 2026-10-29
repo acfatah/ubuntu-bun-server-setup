@@ -271,3 +271,20 @@ stub_apt() {
   [ "$(wc -l <"$SLEEP_LOG")" -eq 2 ]
   [[ $output == *"failed after 3 attempts"* ]]
 }
+
+@test "take_lock: succeeds while the lock is free" {
+  LOCK_FILE=$BATS_TEST_TMPDIR/lock
+  run take_lock
+  [ "$status" -eq 0 ]
+  [ -e "$LOCK_FILE" ]
+}
+
+@test "take_lock: refuses while another process holds the lock" {
+  LOCK_FILE=$BATS_TEST_TMPDIR/lock
+  exec 8>"$LOCK_FILE"
+  flock -n 8
+  run take_lock
+  exec 8>&-
+  [ "$status" -eq 1 ]
+  [[ $output == *"Another installer run is in progress (lock: $LOCK_FILE)"* ]]
+}
