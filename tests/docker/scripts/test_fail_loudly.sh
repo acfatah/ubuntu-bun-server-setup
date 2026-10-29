@@ -35,6 +35,29 @@ fi
 # The failure is in the installer log too
 assert_file_contains /var/log/bun-installer.log "install failed at line"
 
+# A masked snapd is refused before any package work (0009). The first
+# run got past install_certbot, so snapd is installed here.
+masked_log=/root/masked-snapd.log
+systemctl mask snapd.service snapd.socket
+
+echo -e "${YELLOW}[test]${NC} Running installer with snapd masked"
+if bash /workspace/install.sh >"$masked_log" 2>&1; then
+  cat "$masked_log"
+  echo "${RED}Assertion failed:${NC} installer ran with snapd masked" >&2
+  exit 1
+fi
+cat "$masked_log"
+
+assert_file_contains "$masked_log" "snapd is masked, but Certbot is installed as a snap"
+assert_file_contains "$masked_log" "re-run with SKIP_CERTBOT=1"
+# exit, not a failing command: no trap line
+if grep -q "Upgrading packages\|install failed at line" "$masked_log"; then
+  echo "${RED}Assertion failed:${NC} package work or the trap ran before the refusal" >&2
+  exit 1
+fi
+# Unmasked, so the 20.04 check below stands on its own
+systemctl unmask snapd.service snapd.socket
+
 # Last: fake Ubuntu 20.04. /etc/os-release links to /usr/lib/os-release,
 # so write a real file and replace the link, never write through it.
 old_log=/root/old-ubuntu.log

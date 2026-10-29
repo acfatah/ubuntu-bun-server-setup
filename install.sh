@@ -15,6 +15,8 @@ set -Eeuo pipefail
 #   SKIP_BUN_APP=1    -> skip creating /srv/app Bun app
 #   SKIP_CLOUDFLARE=1 -> skip the Cloudflare IP updater and Nginx files
 #   FULL_UPGRADE=1    -> apt-get full-upgrade instead of upgrade
+#   SKIP_UPGRADE=1    -> apt-get update only, no package upgrade
+#   SKIP_CERTBOT=1    -> skip snapd and the Certbot snap
 #   SKIP_UFW=1        -> leave UFW untouched (rules, policy and state)
 #
 # Template source (env var only):
@@ -22,8 +24,8 @@ set -Eeuo pipefail
 #   TEMPLATE_BASE_URL=<url> -> templates directory URL (mirror, file://)
 #
 # Usage:
-#   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UFW=1]
-#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UFW=1]
+#   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1]
+#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1]
 #   bash install.sh --version | --help
 # ==============================================================================
 
@@ -42,8 +44,8 @@ OS_RELEASE=/etc/os-release
 APP_INFO_FILE=/var/lib/app-info/application.info
 # What configure_ufw did this run; recorded as ufw= in APP_INFO_FILE
 UFW_STATE=""
-USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UFW=1]"
-BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
+USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1]"
+BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw)
 # apt-get update attempts and the pause between them, in seconds
 APT_UPDATE_TRIES=3
 APT_UPDATE_DELAY=10
@@ -141,6 +143,8 @@ Toggles (KEY=VALUE argument or env var; only 1 enables):
   SKIP_BUN_APP=1     skip the sample app, its user and its unit
   SKIP_CLOUDFLARE=1  skip the Cloudflare IP updater and Nginx files
   FULL_UPGRADE=1     apt-get full-upgrade instead of upgrade
+  SKIP_UPGRADE=1     apt-get update only, no package upgrade
+  SKIP_CERTBOT=1     skip snapd and the Certbot snap
   SKIP_UFW=1         leave UFW untouched (rules, policy and state)
 
 Template source (env var only):
@@ -214,6 +218,16 @@ full_upgrade() {
   [[ ${FULL_UPGRADE:-} == 1 ]]
 }
 
+# True when packages are not upgraded (apt-get update still runs).
+skip_upgrade() {
+  [[ ${SKIP_UPGRADE:-} == 1 ]]
+}
+
+# True when snapd and the Certbot snap are skipped.
+skip_certbot() {
+  [[ ${SKIP_CERTBOT:-} == 1 ]]
+}
+
 # True when UFW is left untouched.
 skip_ufw() {
   [[ ${SKIP_UFW:-} == 1 ]]
@@ -247,6 +261,12 @@ parse_args() {
       FULL_UPGRADE=*)
         FULL_UPGRADE="${arg#*=}"
         ;;
+      SKIP_UPGRADE=*)
+        SKIP_UPGRADE="${arg#*=}"
+        ;;
+      SKIP_CERTBOT=*)
+        SKIP_CERTBOT="${arg#*=}"
+        ;;
       SKIP_UFW=*)
         SKIP_UFW="${arg#*=}"
         ;;
@@ -259,7 +279,7 @@ parse_args() {
   done
 
   # Env var or argument; a typo like "yes" must not silently fall back
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_CERTBOT SKIP_UFW; do
     case ${!name:-} in
       '' | 0 | false | 1) ;;
       *)
@@ -269,6 +289,13 @@ parse_args() {
         ;;
     esac
   done
+
+  # Either guess would be wrong for someone; make the operator pick
+  if skip_upgrade && full_upgrade; then
+    echo -e "${RED}Invalid combination: SKIP_UPGRADE=1 and FULL_UPGRADE=1 conflict (set only one)${NC}" >&2
+    echo "$USAGE" >&2
+    exit 1
+  fi
 
   if skip_app; then
     NGINX_ROOT=/var/www/html
@@ -313,6 +340,7 @@ require_ubuntu() {
 # fails verification (a mirror caught mid-sync).
 apt_update() {
   local try
+  echo -e "${GREEN}Updating package lists (apt-get update)...${NC}"
   for ((try = 1; try <= APT_UPDATE_TRIES; try++)); do
     apt-get -qqy -o Acquire::Retries=3 update && return 0
     ((try < APT_UPDATE_TRIES)) || break
@@ -323,15 +351,52 @@ apt_update() {
   return 1
 }
 
-# Updates APT metadata and upgrades packages non-interactively. Plain
-# upgrade by default (never removes packages); full-upgrade with
-# FULL_UPGRADE=1. --force-confdef/--force-confold keep existing configs.
-apt_update_upgrade() {
+# Exits 1 naming the two ways out when snapd cannot run Certbot: $1 says
+# why, $2 is the command that fixes it.
+refuse_snapd() {
+  echo -e "${RED}$1 Certbot is installed as a snap. Either:${NC}" >&2
+  echo "  $2   (then re-run), or" >&2
+  echo "  re-run with SKIP_CERTBOT=1 and install Certbot yourself." >&2
+  exit 1
+}
+
+# Refuses, before any package changes, a host where the Certbot snap
+# cannot be installed: snapd masked, or not installed and apt cannot
+# install it (removed from the sources or pinned away). Runs after
+# apt_update: a stale index can show no candidate for a package it has.
+require_snapd() {
+  local enabled installed policy candidate
+  skip_certbot && return
+
+  # is-enabled exits non-zero for any unit not enabled; the text decides
+  enabled=$(systemctl is-enabled snapd.service snapd.socket 2>/dev/null) || true
+  if [[ $enabled == *masked* ]]; then
+    refuse_snapd "snapd is masked, but" \
+      "sudo systemctl unmask snapd.service snapd.socket"
+  fi
+
+  # dpkg-query fails for a package dpkg never saw; that is "not installed"
+  installed=$(dpkg-query -W -f='${Status}' snapd 2>/dev/null) || true
+  [[ $installed == "install ok installed" ]] && return
+  policy=$(apt-cache policy snapd)
+  candidate=$(awk '$1 == "Candidate:" {print $2}' <<<"$policy")
+  if [[ -z $candidate || $candidate == "(none)" ]]; then
+    refuse_snapd "snapd is not installed and apt cannot install it (removed or pinned), but" \
+      "drop the pin or restore the source (see: apt-cache policy snapd)"
+  fi
+}
+
+# Upgrades packages non-interactively. Plain upgrade by default (never
+# removes packages); full-upgrade with FULL_UPGRADE=1; none with
+# SKIP_UPGRADE=1. --force-confdef/--force-confold keep existing configs.
+upgrade_packages() {
   local mode=upgrade
   full_upgrade && mode=full-upgrade
 
-  export DEBIAN_FRONTEND=noninteractive
-  apt_update
+  if skip_upgrade; then
+    echo -e "${YELLOW}Skipping package upgrade (SKIP_UPGRADE=1).${NC}"
+    return
+  fi
   echo -e "${GREEN}Upgrading packages (apt-get ${mode})...${NC}"
   apt-get -qqy -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' "$mode"
 }
@@ -423,12 +488,18 @@ configure_ufw() {
   UFW_STATE=enabled
 }
 
-# Installs Certbot via snap, removing any apt version to avoid conflicts.
+# Installs snapd, then Certbot via snap, removing any apt version to
+# avoid conflicts. Skipped with SKIP_CERTBOT=1.
 install_certbot() {
+  if skip_certbot; then
+    echo -e "${YELLOW}SKIP_CERTBOT=1: snapd and Certbot not installed.${NC}"
+    return
+  fi
   echo -e "${GREEN}Installing Certbot (snap)...${NC}"
 
   # Avoid older apt certbot; nothing to remove is fine
   apt-get -qqy remove certbot || true
+  apt-get -qqy install snapd
   systemctl --quiet enable --now snapd
   # Wait for snapd socket, then for seeding: installs before it finish
   # fail with "too early for operation". A timeout is not fatal here;
@@ -733,10 +804,12 @@ write_motd() {
 }
 
 # Prints a summary of installed components and next steps. Checks that
-# certbot runs and nginx (and bun-app unless skipped) are active; lists
-# anything missing and returns 1 if so.
+# certbot runs (unless skipped) and nginx (and bun-app unless skipped) are
+# active; lists anything missing and returns 1 if so.
 print_summary() {
   local bun_path bun_ver nginx_ver service_line problem reboot_line=""
+  local certbot_lines=" * Certbot installed. To obtain a certificate for an Nginx site:
+   certbot --nginx"
   local problems=()
 
   bun_path=$(command -v bun || echo "not found")
@@ -744,8 +817,10 @@ print_summary() {
   nginx_ver=$(nginx -v 2>&1 || echo "not found")
   service_line=""
 
+  if skip_certbot; then
+    certbot_lines=" * Certbot skipped (SKIP_CERTBOT=1): install an ACME client to get certificates."
   # --version catches a dangling /usr/bin/certbot symlink
-  if ! certbot --version >/dev/null 2>&1; then
+  elif ! certbot --version >/dev/null 2>&1; then
     problems+=("Certbot does not run; see: snap list certbot")
   fi
   if ! systemctl is-active --quiet nginx; then
@@ -779,8 +854,7 @@ ${GREEN}Installation complete.${NC}
  * Nginx: ${nginx_ver}
 ${service_line}
 ${reboot_line}
- * Certbot installed. To obtain a certificate for an Nginx site:
-   certbot --nginx
+${certbot_lines}
  * Log: ${LOG_FILE}
 
 EOF
@@ -818,7 +892,11 @@ main() {
     echo -e "${YELLOW}TEMPLATE_REF=${TEMPLATE_REF} differs from ${INSTALLER_REF}; templates are not verified.${NC}"
   fi
   require_ubuntu
-  apt_update_upgrade
+  export DEBIAN_FRONTEND=noninteractive
+  apt_update
+  # After the update (fresh indexes), before anything is changed
+  require_snapd
+  upgrade_packages
   install_base_packages
   configure_ufw
   install_certbot
