@@ -21,7 +21,7 @@ set -Eeuo pipefail
 #
 # Template source (env var only):
 #   TEMPLATE_REF=<ref>      -> git ref to fetch templates from
-#   TEMPLATE_BASE_URL=<url> -> templates directory URL (mirror, file://)
+#   TEMPLATE_BASE_URL=<url> -> templates directory URL (https:// mirror, file://)
 #
 # Usage:
 #   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1]
@@ -67,6 +67,13 @@ if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
   TEMPLATE_LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/templates"
 fi
 
+# Downloads $1 to $2: https or file only (redirects https only), TLS 1.2+,
+# retries transient errors, gives up after 60 s per attempt.
+fetch_url() {
+  curl -fsSL --proto '=https,file' --proto-redir '=https' --tlsv1.2 \
+    --retry 3 --max-time 60 "$1" -o "$2"
+}
+
 download_template() {
   local template_name="$1"
   local dest_path="$2"
@@ -84,7 +91,7 @@ download_template() {
   # mktemp creates 0600; nginx and bun-app must read the result.
   local tmp
   tmp=$(mktemp "$(dirname "$dest_path")/.${dest_path##*/}.XXXXXX")
-  if ! curl -fsSL "${TEMPLATE_BASE_URL}/${template_name}" -o "$tmp" \
+  if ! fetch_url "${TEMPLATE_BASE_URL}/${template_name}" "$tmp" \
     || ! verify_template "$template_name" "$tmp"; then
     rm -f "$tmp"
     return 1
@@ -118,10 +125,18 @@ verify_template() {
   echo "Checksum OK: $name"
 }
 
-# Prints the installer version and where templates come from.
+# Prints the installer version, where templates come from and whether
+# downloads are verified.
 print_version() {
   echo "ubuntu-bun-server-setup ${INSTALLER_VERSION}"
   echo "templates: ${TEMPLATE_REF} from ${TEMPLATE_BASE_URL}"
+  if verify_templates; then
+    echo "templates: verified against embedded SHA-256 sums"
+  elif [[ -n $TEMPLATE_SHA256 ]]; then
+    echo "templates: not verified (TEMPLATE_REF differs from INSTALLER_REF)"
+  else
+    echo "templates: not verified (dev channel)"
+  fi
   if [[ -n $TEMPLATE_LOCAL_DIR && -d $TEMPLATE_LOCAL_DIR ]]; then
     echo "local templates (used first): ${TEMPLATE_LOCAL_DIR}"
   fi
@@ -149,7 +164,7 @@ Toggles (KEY=VALUE argument or env var; only 1 enables):
 
 Template source (env var only):
   TEMPLATE_REF=<ref>       git ref to fetch templates from (default: ${INSTALLER_REF})
-  TEMPLATE_BASE_URL=<url>  templates directory URL, e.g. a mirror or file://
+  TEMPLATE_BASE_URL=<url>  templates directory URL: https:// mirror or file://
 EOF
 }
 
@@ -239,6 +254,11 @@ parse_args() {
   # Ends up in a URL; no "..", so it cannot climb out of the repo path
   if [[ ! $TEMPLATE_REF =~ ^[A-Za-z0-9._/-]+$ || $TEMPLATE_REF == *..* ]]; then
     echo -e "${RED}Invalid TEMPLATE_REF=${TEMPLATE_REF}${NC}" >&2
+    exit 1
+  fi
+  # Plain http could swap templates in transit; one spelling only
+  if [[ ! $TEMPLATE_BASE_URL =~ ^(https|file)://.+ ]]; then
+    echo -e "${RED}Invalid TEMPLATE_BASE_URL=${TEMPLATE_BASE_URL} (use https:// or file://)${NC}" >&2
     exit 1
   fi
 

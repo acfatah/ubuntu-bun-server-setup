@@ -142,8 +142,9 @@ sha256sum -c SHA256SUMS
 sudo bash install.sh
 ```
 
-`--version` prints the installer version and where its templates come from;
-`--help` lists the toggles. Neither needs root:
+`--version` prints the installer version, where its templates come from
+and whether they are verified; `--help` lists the toggles. Neither needs
+root:
 
 ```bash
 curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/download/install.sh | bash -s -- --version
@@ -152,7 +153,8 @@ curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/do
 ### Development channel
 
 The `install.sh` on `main` is the development channel: it reports version
-`dev`, fetches templates from `main`, and does not verify them.
+`dev`, fetches templates from `main`, and does not verify them. Its
+`--version` says `templates: not verified (dev channel)`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/main/install.sh | sudo bash
@@ -168,9 +170,13 @@ are not `KEY=VALUE` arguments; with `sudo`, put them after it, as in
   release installer pointed at another ref skips verification and prints a
   warning, since the files are expected to differ. Letters, digits, `.`,
   `_`, `/` and `-` only, and no `..`.
-- `TEMPLATE_BASE_URL=<url>` — the templates directory itself, such as a
-  mirror or `file:///path/to/templates`. A release installer still verifies
-  what it downloads from there.
+- `TEMPLATE_BASE_URL=<url>` — the templates directory itself, such as an
+  `https://` mirror or `file:///path/to/templates`. Any other scheme,
+  `http://` included, is refused before anything is installed. A release
+  installer still verifies what it downloads from there.
+
+Downloads use TLS 1.2 or later, follow redirects to `https://` only, retry
+transient errors 3 times, and give up after 60 seconds per attempt.
 
 ## Re-running the installer
 
@@ -575,16 +581,17 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   `TEMPLATE_BASE_URL=file:///workspace/templates` so the branch's templates
   are used. Checks the argument takes effect, Cloudflare support is
   installed, no `BASH_SOURCE` error is printed, downloaded (not local)
-  templates are used, and that unknown arguments and a `TEMPLATE_REF` with
-  `..` are rejected; `--version` names the ref and `--help` runs as
+  templates are used, and that unknown arguments, a `TEMPLATE_REF` with
+  `..` and an `http://` `TEMPLATE_BASE_URL` are rejected; `--version` names
+  the ref and says the dev channel is not verified, and `--help` runs as
   non-root.
 - `test_release_build.sh` — builds a pinned installer with
   `build-installer.sh 9.9.9`, checks its `SHA256SUMS` and `--version`, and
-  pipes it with `file://` templates: templates are verified and
-  `application.info` records `installer_version="9.9.9"`. A re-run with a
-  tampered `application.info` fails with a checksum error and leaves the
-  installed file unchanged; with `TEMPLATE_REF=main` it warns and skips
-  verification.
+  pipes it with `file://` templates: `--version` says templates are
+  verified, they are, and `application.info` records
+  `installer_version="9.9.9"`. A re-run with a tampered `application.info`
+  fails with a checksum error and leaves the installed file unchanged; with
+  `TEMPLATE_REF=main` it warns, skips verification and logs why.
 - `test_fail_loudly.sh` — runs a copy of the repo with a broken
   `nginx-default.conf` and checks the installer exits non-zero with the
   `install failed at line N` message and no colour escapes off a terminal.

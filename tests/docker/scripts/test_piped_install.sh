@@ -6,25 +6,38 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/docker/scripts/common.sh
 . "$SCRIPT_DIR/common.sh"
 
+# Rejection logs stay out of /tmp: a file written there was once gone by
+# the time its assert ran in the test container
+err_dir=/root/piped-errors
+mkdir -p "$err_dir"
+
 # Unknown arguments are rejected before anything is installed
-if bash "$INSTALLER" BOGUS=1 2>"$LOG_DIR/bogus.err"; then
+if bash "$INSTALLER" BOGUS=1 2>"$err_dir/bogus.err"; then
   echo "${RED}Assertion failed:${NC} installer accepted BOGUS=1" >&2
   exit 1
 fi
-assert_file_contains "$LOG_DIR/bogus.err" "Unknown argument: BOGUS=1"
+assert_file_contains "$err_dir/bogus.err" "Unknown argument: BOGUS=1"
 
 # A ref that could climb out of the repo path is rejected
-if TEMPLATE_REF=../x bash "$INSTALLER" 2>"$LOG_DIR/ref.err"; then
+if TEMPLATE_REF=../x bash "$INSTALLER" 2>"$err_dir/ref.err"; then
   echo "${RED}Assertion failed:${NC} installer accepted TEMPLATE_REF=../x" >&2
   exit 1
 fi
-assert_file_contains "$LOG_DIR/ref.err" "Invalid TEMPLATE_REF=../x"
+assert_file_contains "$err_dir/ref.err" "Invalid TEMPLATE_REF=../x"
+
+# Plain http is refused: templates must come over TLS or from disk
+if TEMPLATE_BASE_URL=http://example.com/t bash "$INSTALLER" 2>"$err_dir/url.err"; then
+  echo "${RED}Assertion failed:${NC} installer accepted TEMPLATE_BASE_URL=http://example.com/t" >&2
+  exit 1
+fi
+assert_file_contains "$err_dir/url.err" "Invalid TEMPLATE_BASE_URL=http://example.com/t (use https:// or file://)"
 
 # --version names the dev build and the ref; --help needs no root
 version=$(TEMPLATE_REF=v0.4.0 bash "$INSTALLER" --version)
 echo "$version"
 grep -q "ubuntu-bun-server-setup dev" <<<"$version"
 grep -q "templates: v0.4.0 from https://raw.githubusercontent.com/.*/v0.4.0/templates" <<<"$version"
+grep -q "templates: not verified (dev channel)" <<<"$version"
 sudo -u tester bash "$INSTALLER" --help | grep -q "TEMPLATE_BASE_URL"
 
 # Pipe the installer like the README Quick Start, from a cwd without

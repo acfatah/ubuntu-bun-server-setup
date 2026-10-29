@@ -192,6 +192,80 @@ conflict_refused() {
   done
 }
 
+@test "parse_args: TEMPLATE_BASE_URL other than https:// or file:// is rejected" {
+  local url
+  for url in http://example.com/t ftp://example.com/t HTTPS://example.com/t example.com/t file: https://; do
+    TEMPLATE_BASE_URL=$url
+    run parse_args
+    [ "$status" -eq 1 ] || {
+      echo "accepted TEMPLATE_BASE_URL='$url'"
+      return 1
+    }
+    [[ $output == *"Invalid TEMPLATE_BASE_URL=$url (use https:// or file://)"* ]]
+  done
+}
+
+@test "parse_args: TEMPLATE_BASE_URL https:// and file:// are accepted" {
+  local url
+  for url in https://x/t file:///w/t; do
+    TEMPLATE_BASE_URL=$url
+    run parse_args
+    [ "$status" -eq 0 ] || {
+      echo "rejected TEMPLATE_BASE_URL='$url': $output"
+      return 1
+    }
+  done
+}
+
+# Stubs curl: logs its arguments one per line, then exits with $1.
+stub_curl() {
+  CURL_STATUS=$1
+  CURL_LOG=$BATS_TEST_TMPDIR/curl.args
+  curl() {
+    printf '%s\n' "$@" >"$CURL_LOG"
+    return "$CURL_STATUS"
+  }
+}
+
+@test "fetch_url: https or file only, TLS 1.2+, retries and a time cap" {
+  stub_curl 0
+  fetch_url https://x/t/a "$FILE"
+  local args
+  args=$(tr '\n' ' ' <"$CURL_LOG")
+  [[ $args == *"--proto =https,file "* ]]
+  [[ $args == *"--proto-redir =https "* ]]
+  [[ $args == *"--tlsv1.2 "* ]]
+  [[ $args == *"--retry 3 "* ]]
+  [[ $args == *"--max-time 60 "* ]]
+  [[ $args == *"https://x/t/a -o $FILE "* ]]
+}
+
+@test "fetch_url: fails when curl fails" {
+  stub_curl 22
+  run fetch_url https://x/t/a "$FILE"
+  [ "$status" -eq 22 ]
+}
+
+@test "print_version: dev channel says templates are not verified" {
+  run print_version
+  [ "$status" -eq 0 ]
+  [[ $output == *"templates: not verified (dev channel)"* ]]
+}
+
+@test "print_version: a release build on its own ref says verified" {
+  INSTALLER_REF=v9.9.9 TEMPLATE_REF=v9.9.9 TEMPLATE_SHA256='abc  motd.sh'
+  run print_version
+  [ "$status" -eq 0 ]
+  [[ $output == *"templates: verified against embedded SHA-256 sums"* ]]
+}
+
+@test "print_version: a release build on another ref says not verified" {
+  INSTALLER_REF=v9.9.9 TEMPLATE_REF=main TEMPLATE_SHA256='abc  motd.sh'
+  run print_version
+  [ "$status" -eq 0 ]
+  [[ $output == *"templates: not verified (TEMPLATE_REF differs from INSTALLER_REF)"* ]]
+}
+
 @test "parse_args: SKIP_BUN_APP=1 serves the stock web root" {
   [ "$NGINX_ROOT" = /var/www/app/dist ]
   parse_args
