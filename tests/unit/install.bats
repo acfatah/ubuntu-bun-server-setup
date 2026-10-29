@@ -3,7 +3,7 @@
 
 setup() {
   REPO_ROOT=$(cd "$BATS_TEST_DIRNAME/../.." && pwd)
-  unset SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE TEMPLATE_REF TEMPLATE_BASE_URL
+  unset SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW TEMPLATE_REF TEMPLATE_BASE_URL
   # shellcheck source=install.sh
   source "$REPO_ROOT/install.sh"
   # install.sh sets -u for itself; bats expects it off
@@ -82,7 +82,7 @@ check_replace() {
 
 @test "parse_args: toggles accept empty, 0, false and 1 as argument" {
   local name value
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW; do
     for value in '' 0 false 1; do
       run parse_args "$name=$value"
       [ "$status" -eq 0 ] || {
@@ -95,7 +95,7 @@ check_replace() {
 
 @test "parse_args: toggles accept empty, 0, false and 1 from the environment" {
   local name value
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW; do
     for value in '' 0 false 1; do
       printf -v "$name" '%s' "$value"
       run parse_args
@@ -110,7 +110,7 @@ check_replace() {
 
 @test "parse_args: a toggle set to yes is rejected, as argument and from env" {
   local name
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW; do
     run parse_args "$name=yes"
     [ "$status" -eq 1 ]
     [[ $output == *"Invalid $name=yes"* ]]
@@ -270,4 +270,126 @@ stub_apt() {
   [ "$(wc -l <"$APT_LOG")" -eq 3 ]
   [ "$(wc -l <"$SLEEP_LOG")" -eq 2 ]
   [[ $output == *"failed after 3 attempts"* ]]
+}
+
+@test "take_lock: succeeds while the lock is free" {
+  LOCK_FILE=$BATS_TEST_TMPDIR/lock
+  run take_lock
+  [ "$status" -eq 0 ]
+  [ -e "$LOCK_FILE" ]
+}
+
+@test "take_lock: refuses while another process holds the lock" {
+  LOCK_FILE=$BATS_TEST_TMPDIR/lock
+  exec 8>"$LOCK_FILE"
+  flock -n 8
+  run take_lock
+  exec 8>&-
+  [ "$status" -eq 1 ]
+  [[ $output == *"Another installer run is in progress (lock: $LOCK_FILE)"* ]]
+}
+
+# Points APP_INFO_FILE at the test dir; with an argument, writes it as an
+# earlier run would, with ufw="$1" ("legacy" writes no ufw= line).
+earlier_info() {
+  APP_INFO_FILE=$BATS_TEST_TMPDIR/application.info
+  [ $# -gt 0 ] || return 0
+  printf 'application_name="Bun.sh"\n' >"$APP_INFO_FILE"
+  [ "$1" = legacy ] || printf 'ufw="%s"\n' "$1" >>"$APP_INFO_FILE"
+}
+
+# Stubs ufw (reporting status $1: active or inactive) and ssh_ports; ufw
+# logs its arguments to UFW_LOG, one call per line.
+stub_ufw() {
+  UFW_STATUS=$1
+  UFW_LOG=$BATS_TEST_TMPDIR/ufw
+  : >"$UFW_LOG"
+  ufw() {
+    echo "$*" >>"$UFW_LOG"
+    case $1 in
+      status) echo "Status: $UFW_STATUS" ;;
+      app) echo "  Nginx Full" ;;
+    esac
+  }
+  ssh_ports() { echo 22; }
+}
+
+# True when the stubbed ufw was asked to enable, set a policy or add a rule.
+ufw_changed() {
+  grep -qE '^(--force enable|default|limit|allow)' "$UFW_LOG"
+}
+
+# A bare "! ufw_changed" would never fail a test (see not_gt in release.bats)
+ufw_unchanged() {
+  ! ufw_changed
+}
+
+# Runs configure_ufw and checks UFW_STATE is $1 and ufw_changed is $2.
+check_ufw() {
+  configure_ufw
+  [ "$UFW_STATE" = "$1" ] || {
+    echo "UFW_STATE=$UFW_STATE, expected $1"
+    return 1
+  }
+  if [ "$2" = changed ]; then
+    ufw_changed
+  else
+    ufw_unchanged
+  fi
+}
+
+@test "previous_ufw_state: no file, each recorded value, legacy file" {
+  earlier_info
+  [ -z "$(previous_ufw_state)" ]
+  local state
+  for state in enabled skipped left-disabled legacy; do
+    earlier_info "$state"
+    [ "$(previous_ufw_state)" = "$state" ]
+  done
+}
+
+@test "configure_ufw: SKIP_UFW=1 touches nothing" {
+  earlier_info enabled
+  stub_ufw inactive
+  SKIP_UFW=1
+  check_ufw skipped unchanged
+  [ ! -s "$UFW_LOG" ]
+}
+
+@test "configure_ufw: an active UFW gets its rules" {
+  earlier_info left-disabled
+  stub_ufw active
+  check_ufw enabled changed
+  grep -qx 'limit 22/tcp' "$UFW_LOG"
+  grep -qx 'allow Nginx Full' "$UFW_LOG"
+  ! grep -q '^default' "$UFW_LOG" || return 1
+}
+
+# Checks an inactive UFW gets the default policy, rules and enable.
+check_ufw_enabled() {
+  stub_ufw inactive
+  check_ufw enabled changed
+  grep -qx 'default deny incoming' "$UFW_LOG"
+  grep -qx 'limit 22/tcp' "$UFW_LOG"
+  grep -qx -- '--force enable' "$UFW_LOG"
+}
+
+@test "configure_ufw: inactive on a first install is enabled" {
+  earlier_info
+  check_ufw_enabled
+}
+
+@test "configure_ufw: inactive after an earlier SKIP_UFW=1 run is enabled" {
+  earlier_info skipped
+  check_ufw_enabled
+}
+
+@test "configure_ufw: inactive after an earlier enable is left disabled" {
+  local earlier
+  for earlier in enabled left-disabled legacy; do
+    earlier_info "$earlier"
+    stub_ufw inactive
+    check_ufw left-disabled unchanged
+    [[ $(configure_ufw) == *"left disabled"* ]]
+  done
 }

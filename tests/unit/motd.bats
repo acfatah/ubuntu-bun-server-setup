@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Unit tests for templates/motd.sh, with bun, nginx and hostname stubbed.
+# Unit tests for templates/motd.sh, with bun, nginx, hostname and ufw
+# stubbed.
 
 setup() {
   REPO_ROOT=$(cd "$BATS_TEST_DIRNAME/../.." && pwd)
@@ -14,6 +15,7 @@ setup() {
   stub bun 'echo 1.2.3'
   stub nginx 'echo "nginx version: nginx/1.24.0 (Ubuntu)" >&2'
   stub hostname 'echo "203.0.113.7 10.0.0.2 "'
+  stub ufw 'echo "Status: active"'
 }
 
 # Writes an executable $STUBS/$1 that runs the shell code $2.
@@ -51,9 +53,23 @@ run_motd() {
   [[ $output == *"Public access: http://<server-ip>"* ]]
 }
 
-@test "motd: the UFW line names no SSH port" {
+@test "motd: an active UFW names no SSH port" {
   run_motd
   [ "$status" -eq 0 ]
-  [[ ${lines[1]} == "UFW is enabled: SSH rate-limited, HTTP (80) and HTTPS (443) allowed." ]]
+  [[ ${lines[1]} == "UFW is active: SSH rate-limited, HTTP (80) and HTTPS (443) allowed." ]]
   [[ ${lines[1]} != *22* ]]
+}
+
+@test "motd: an inactive UFW says so" {
+  stub ufw 'echo "Status: inactive"'
+  run_motd
+  [ "$status" -eq 0 ]
+  [[ ${lines[1]} == "UFW is inactive: no firewall rules are enforced." ]]
+}
+
+@test "motd: a failing ufw prints status unknown" {
+  stub ufw 'echo "ERROR: You need to be root to run this script" >&2; exit 1'
+  run_motd
+  [ "$status" -eq 0 ]
+  [[ ${lines[1]} == "UFW status unknown." ]]
 }

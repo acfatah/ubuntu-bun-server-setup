@@ -16,9 +16,17 @@ nginx_label="Nginx (version unknown)"
 server_ip=$(hostname -I 2>/dev/null | awk '{print $1}') || server_ip=
 [ -n "$server_ip" ] || server_ip="<server-ip>"
 
+# Live state: the operator may disable UFW after the install
+ufw_status=$(ufw status 2>/dev/null) || ufw_status=
+case $ufw_status in
+  "Status: active"*) ufw_line="UFW is active: SSH rate-limited, HTTP (80) and HTTPS (443) allowed." ;;
+  "Status: inactive"*) ufw_line="UFW is inactive: no firewall rules are enforced." ;;
+  *) ufw_line="UFW status unknown." ;;
+esac
+
 cat <<EOM
 Welcome to $DISTRIB_DESCRIPTION, with $bun_label and $nginx_label.
-UFW is enabled: SSH rate-limited, HTTP (80) and HTTPS (443) allowed.
+$ufw_line
 
  * Documentation: https://bun.sh
  * Nginx docs: https://nginx.org/en/docs

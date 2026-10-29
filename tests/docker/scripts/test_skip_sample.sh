@@ -6,9 +6,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/docker/scripts/common.sh
 . "$SCRIPT_DIR/common.sh"
 
-run_installer SKIP_BUN_APP=1
+INFO=/var/lib/app-info/application.info
+
+run_installer SKIP_BUN_APP=1 SKIP_UFW=1
 
 assert_file_contains /etc/nginx/sites-available/default "root /var/www/html"
+
+# SKIP_UFW=1: UFW stays inactive with no rules added, and the run says so
+assert_equals "UFW after SKIP_UFW=1" "Status: inactive" "$(ufw status)"
+if ufw show added | grep -qE 'limit|Nginx Full|allow'; then
+  echo "${RED}Assertion failed:${NC} SKIP_UFW=1 added UFW rules" >&2
+  ufw show added >&2
+  exit 1
+fi
+assert_file_contains "$INFO" '^ufw="skipped"$'
+assert_file_contains /var/log/bun-installer.log "SKIP_UFW=1: UFW left untouched"
 
 curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "Hello World"
 
@@ -40,8 +52,11 @@ if grep -q "cloudflare" /etc/nginx/sites-available/default; then
 fi
 assert_file_contains /var/log/bun-installer.log "Cloudflare: only the real client IP applies"
 
-# A re-run keeps the user's own index.html
+# A re-run keeps the user's own index.html; without SKIP_UFW it enables
+# UFW, since the earlier run recorded it as skipped
 echo "<h1>My own site</h1>" >/var/www/html/index.html
 run_installer SKIP_BUN_APP=1
+ufw status | grep -q "^Status: active"
+assert_file_contains "$INFO" '^ufw="enabled"$'
 assert_file_contains /var/log/bun-installer.log "Kept existing /var/www/html/index.html"
 curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "My own site"

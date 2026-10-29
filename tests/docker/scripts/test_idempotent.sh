@@ -42,7 +42,24 @@ for file in "${edited_files[@]}"; do
   echo "# user edit" >>"$file"
 done
 
-# Second run must keep all of it
+# A run while another holds the lock fails and changes nothing: the
+# stale INSTANCE_ID line stays and the log gets no header
+echo -e "${YELLOW}[test]${NC} a run is refused while the lock is held"
+lock=/run/lock/bun-installer.lock
+log_lines=$(wc -l </var/log/bun-installer.log)
+env_before=$(sha256sum </etc/environment)
+exec 8>"$lock"
+flock -n 8
+if out=$(bash "$INSTALLER" 2>&1); then
+  echo "${RED}Assertion failed:${NC} a run succeeded while the lock was held" >&2
+  exit 1
+fi
+exec 8>&-
+grep -q "Another installer run is in progress" <<<"$out"
+assert_equals "log lines after a refused run" "$log_lines" "$(wc -l </var/log/bun-installer.log)"
+assert_equals "/etc/environment after a refused run" "$env_before" "$(sha256sum </etc/environment)"
+
+# Second run (lock released) must keep all of it
 # shellcheck disable=SC2119 # default install: no env overrides
 run_installer
 
