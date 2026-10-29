@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 INFO=/var/lib/app-info/application.info
 
-run_installer SKIP_BUN_APP=1 SKIP_UFW=1
+run_installer SKIP_BUN_APP=1 SKIP_UFW=1 SKIP_CERTBOT=1
 
 assert_file_contains /etc/nginx/sites-available/default "root /var/www/html"
 
@@ -21,6 +21,14 @@ if ufw show added | grep -qE 'limit|Nginx Full|allow'; then
 fi
 assert_file_contains "$INFO" '^ufw="skipped"$'
 assert_file_contains /var/log/bun-installer.log "SKIP_UFW=1: UFW left untouched"
+
+# SKIP_CERTBOT=1: neither snapd nor Certbot installed, summary still passes
+if dpkg -s snapd >/dev/null 2>&1 || command -v certbot >/dev/null; then
+  echo "${RED}Assertion failed:${NC} SKIP_CERTBOT=1 installed snapd or certbot" >&2
+  exit 1
+fi
+assert_file_contains /var/log/bun-installer.log "SKIP_CERTBOT=1: snapd and Certbot not installed"
+assert_file_contains /var/log/bun-installer.log "Certbot skipped (SKIP_CERTBOT=1)"
 
 curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "Hello World"
 
@@ -53,9 +61,11 @@ fi
 assert_file_contains /var/log/bun-installer.log "Cloudflare: only the real client IP applies"
 
 # A re-run keeps the user's own index.html; without SKIP_UFW it enables
-# UFW, since the earlier run recorded it as skipped
+# UFW, since the earlier run recorded it as skipped; without SKIP_CERTBOT
+# it installs snapd and Certbot
 echo "<h1>My own site</h1>" >/var/www/html/index.html
 run_installer SKIP_BUN_APP=1
+certbot --version
 ufw status | grep -q "^Status: active"
 assert_file_contains "$INFO" '^ufw="enabled"$'
 assert_file_contains /var/log/bun-installer.log "Kept existing /var/www/html/index.html"

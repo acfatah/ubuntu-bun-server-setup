@@ -13,7 +13,7 @@
 
 Bootstrap an opinionated, production-ready Bun application environment for Ubuntu.
 
-- Installs Bun, Nginx, UFW, Certbot (via snap), and sets up a Bun app under `/srv/app`.
+- Installs Bun, Nginx, UFW, Certbot (via snap; `SKIP_CERTBOT=1` to bring your own ACME client), and sets up a Bun app under `/srv/app`.
 - Creates a systemd service `bun-app` for running the Bun app as an
   unprivileged `bun-app` user inside a systemd sandboxing profile (see
   [Security](#security)).
@@ -46,6 +46,12 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 
 - Ubuntu 22.04 or later, run as root or with sudo. Older releases are refused before any package is installed.
 - Internet access for package and snap installs.
+- A usable snapd, unless `SKIP_CERTBOT=1`. Certbot comes only from the
+  snap, so a host where snapd is masked, or not installed and not
+  installable through apt (removed from the sources or pinned away), is
+  refused right after `apt-get update`, before any package changes. The
+  message names both ways out: unmask (or unpin) snapd, or re-run with
+  `SKIP_CERTBOT=1`.
 
 
 ## Software Included
@@ -55,6 +61,10 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 | [Bun][1]     | Official installer, [latest release][2] | [MIT][3] |
 | [Nginx][4]   | Ubuntu apt ([22.04][5], [24.04][10]) | [BSD-2-Clause][6] |
 | [Certbot][7] | Snap, [latest release][8] | [Apache 2.0][9] |
+
+Certbot is the snap only, as its docs recommend; there is no apt
+fallback. snapd is installed through apt when missing. With
+`SKIP_CERTBOT=1`, neither is installed.
 
 ## Out of scope
 
@@ -116,7 +126,7 @@ When done:
 
 If a step fails, the installer stops, exits non-zero and prints
 `install failed at line N (<step>)`. If it completes but something is not
-running (Certbot, Nginx, `bun-app`), the summary lists it and the exit
+running (Certbot unless skipped, Nginx, `bun-app`), the summary lists it and the exit
 status is non-zero.
 
 ### Pin and check a version
@@ -550,9 +560,10 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
   content, that the stock Nginx site is kept and no proxy snippet or map
   file is installed, that the Cloudflare real-IP config is installed with
-  the stock site untouched, and that `SKIP_UFW=1` leaves UFW inactive with
-  no rules. A re-run without `SKIP_UFW` keeps a custom `index.html` and
-  enables UFW.
+  the stock site untouched, that `SKIP_UFW=1` leaves UFW inactive with
+  no rules, and that `SKIP_CERTBOT=1` installs neither snapd nor Certbot.
+  A re-run without either toggle keeps a custom `index.html`, enables UFW
+  and installs Certbot.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
   `SKIP_BUN_APP=0`, edits installed files, checks a run is refused and
   changes nothing while the lock is held, re-runs, and checks the edits
@@ -577,6 +588,8 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
 - `test_fail_loudly.sh` — runs a copy of the repo with a broken
   `nginx-default.conf` and checks the installer exits non-zero with the
   `install failed at line N` message and no colour escapes off a terminal.
+  With snapd masked, a run is refused with the masked message before any
+  package upgrade; on a faked Ubuntu 20.04, likewise.
 - `test_host_safety.sh` — rejects `FULL_UPGRADE=yes` and
   `SKIP_UPGRADE=1` with `FULL_UPGRADE=1`, installs
   openssh-server on port 2222 and checks UFW limits `2222/tcp` (not 22) and
@@ -641,6 +654,11 @@ Pass toggles as environment variables or as `KEY=VALUE` arguments to
   `sudo snap set system refresh.timer=fri,23:00-01:00`. A held snap still
   updates on an explicit `sudo snap refresh certbot`.
 
+- `SKIP_CERTBOT=1` — Install neither snapd nor Certbot, and leave out the
+  summary's Certbot check. Bring your own ACME client (acme.sh, lego, a
+  load balancer's certificates) to get certificates. A later run without it
+  installs snapd and Certbot.
+
 - `SKIP_UFW=1` — Leave UFW untouched: no rules, no default policy, no
   `ufw enable`. Use it when another firewall or your cloud's security
   groups filter traffic. A later run without it enables UFW; see
@@ -655,6 +673,7 @@ sudo bash install.sh SKIP_BUN_APP=1 FULL_UPGRADE=1
 sudo bash install.sh SKIP_CLOUDFLARE=1
 sudo bash install.sh SKIP_UFW=1
 sudo bash install.sh SKIP_UPGRADE=1
+sudo bash install.sh SKIP_CERTBOT=1
 ```
 
 ## Notes

@@ -102,8 +102,8 @@ only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
 Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
 colours) and `set -Eeuo pipefail`.
 
-`main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `apt_update` (retried) → `upgrade_packages` (`apt-get upgrade`;
-`full-upgrade` with `FULL_UPGRADE=1`, none with `SKIP_UPGRADE=1`) → base packages → UFW rules (no reset; see Idempotency) → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
+`main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `apt_update` (retried) → `require_snapd` → `upgrade_packages` (`apt-get upgrade`;
+`full-upgrade` with `FULL_UPGRADE=1`, none with `SKIP_UPGRADE=1`) → base packages → UFW rules (no reset; see Idempotency) → snapd (apt) + Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
 `/usr/local/bin/bun`) → `bun-app` system user → sample app →
 `install_cloudflare` (updater, units, first fetch, `conf.d`, timer; first
 in `configure_nginx`, so its `nginx -t` sees the old site) → Nginx config →
@@ -124,8 +124,16 @@ rewritten in `/etc/environment` → MOTD → summary.
   `main`). `Acquire::Retries` alone misses an InRelease
   that downloads but fails verification. `test_host_safety` uses
   `apt_update_retry` from `common.sh` for its own update.
-- `print_summary` checks `certbot --version`, `nginx` and (unless skipped)
-  `bun-app` are active; it lists problems and returns 1, which `main`
+- `require_snapd` (skipped with `SKIP_CERTBOT=1`) runs between
+  `apt_update` and `upgrade_packages`: fresh indexes, nothing changed yet.
+  `systemctl is-enabled snapd.service snapd.socket` printing `masked`, or
+  snapd not `install ok installed` (`dpkg-query`) with no `Candidate:` in
+  `apt-cache policy` (empty or `(none)`), goes to `refuse_snapd`: RED
+  reason plus the two ways out (fix snapd, or `SKIP_CERTBOT=1`), `exit 1`.
+  An `exit` trips no ERR trap, so no `install failed` line. No apt
+  `certbot` fallback, by decision: Certbot's docs recommend the snap.
+- `print_summary` checks `certbot --version` (unless `SKIP_CERTBOT=1`),
+  `nginx` and (unless skipped) `bun-app` are active; it lists problems and returns 1, which `main`
   turns into `exit 1` without tripping the trap.
 - Colours are empty unless stdout is a TTY (decided before the pipe).
 - A run refused by `take_lock` changes nothing, not even the log.
@@ -151,13 +159,13 @@ rewritten in `/etc/environment` → MOTD → summary.
   under `/root`; don't use it for permission probes.
 - `create_app_user` and the data symlink are skipped with `SKIP_BUN_APP=1`.
 
-### Toggles (`SKIP_BUN_APP`, `SKIP_CLOUDFLARE`, `FULL_UPGRADE`, `SKIP_UPGRADE`, `SKIP_UFW`)
+### Toggles (`SKIP_BUN_APP`, `SKIP_CLOUDFLARE`, `FULL_UPGRADE`, `SKIP_UPGRADE`, `SKIP_CERTBOT`, `SKIP_UFW`)
 
 - Set as env var or `KEY=VALUE` arg (`parse_args`, allowlisted; unknown
   args exit 1 before the root check).
 - Only **`1`** enables; checks go through `skip_app` / `skip_cloudflare` /
-  `full_upgrade` / `skip_upgrade` / `skip_ufw`. `parse_args` accepts
-  empty, `0`, `false` (off) and `1` for all five; any
+  `full_upgrade` / `skip_upgrade` / `skip_certbot` / `skip_ufw`.
+  `parse_args` accepts empty, `0`, `false` (off) and `1` for all six; any
   other value exits 1 with `Invalid <NAME>=<value>` before the root check.
   Adding a toggle means extending both loops in `parse_args`, `USAGE`,
   `print_help`, the header comment and the three toggle loops in
@@ -169,6 +177,10 @@ rewritten in `/etc/environment` → MOTD → summary.
   and makes `upgrade_packages` print `Skipping package upgrade` and
   return. With `FULL_UPGRADE=1` too, `parse_args` exits 1 with `Invalid
   combination: ...` before the root check: no precedence rule.
+- `SKIP_CERTBOT=1` skips `require_snapd` and `install_certbot` (snapd
+  left `BASE_PACKAGES`; `install_certbot` apt-installs it), and the
+  summary prints `Certbot skipped` instead of checking `certbot`. A later
+  run without it installs both.
 - `SKIP_UFW=1` leaves UFW untouched (no rule, policy or enable) and
   records `ufw="skipped"`.
 
@@ -300,8 +312,10 @@ Re-running must be safe and never clobber user edits:
   `test_skip_sample` (`SKIP_BUN_APP=1`, expects `"Hello World"`, no
   `bun-app` user, stock site kept, no snippet or map file, Cloudflare
   `conf.d` present and real-IP-only note; first run with `SKIP_UFW=1`:
-  UFW inactive, no rules added, `ufw="skipped"`; re-run keeps a custom
-  `index.html` and enables UFW, `ufw="enabled"`),
+  UFW inactive, no rules added, `ufw="skipped"`; and `SKIP_CERTBOT=1`:
+  no snapd package, no `certbot`, skip note; re-run keeps a custom
+  `index.html`, enables UFW, `ufw="enabled"`, and `certbot --version`
+  works),
   `test_idempotent` (`SKIP_BUN_APP=yes` rejected, `=0` installs, a run
   while the test shell holds the lock exits 1 with the log and
   `/etc/environment` unchanged, edits survive a re-run (unit, env file, site, snippet, map, Cloudflare updater,
@@ -318,7 +332,9 @@ Re-running must be safe and never clobber user edits:
   byte-identical, no temp file left; `TEMPLATE_REF=main` warns and skips
   verification),
   `test_fail_loudly` (broken `nginx-default.conf` in a copy of the repo
-  exits non-zero with the trap message, no colour escapes off-TTY; then a
+  exits non-zero with the trap message, no colour escapes off-TTY; then
+  `systemctl mask snapd.service snapd.socket` is refused with the masked
+  message, no trap line and no `Upgrading packages`, and unmasked; then a
   faked 20.04 `/etc/os-release` is refused before `Upgrading packages`),
   `test_host_safety` (`FULL_UPGRADE=yes` and `SKIP_UPGRADE=1
   FULL_UPGRADE=1` rejected, the latter with no log line; openssh-server on port
@@ -359,6 +375,9 @@ Re-running must be safe and never clobber user edits:
   22.04, other distro, bad or missing `VERSION_ID`, missing file),
   `apt_update` retries (`apt-get` and `sleep` stubbed as functions),
   `upgrade_packages` modes (default, full, skipped: no `apt-get` call),
+  `require_snapd` (`systemctl`, `dpkg-query`, `apt-cache` stubbed: skip
+  calls none, installed passes, either unit masked refused, absent with
+  a candidate passes, absent with `(none)` or no line refused),
   `take_lock` free and held (`LOCK_FILE` in `$BATS_TEST_TMPDIR`),
   `previous_ufw_state` and each `configure_ufw` decision (`ufw` and
   `ssh_ports` stubbed as functions, `APP_INFO_FILE` in the tmpdir);

@@ -3,7 +3,7 @@
 
 setup() {
   REPO_ROOT=$(cd "$BATS_TEST_DIRNAME/../.." && pwd)
-  unset SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_UFW TEMPLATE_REF TEMPLATE_BASE_URL
+  unset SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_CERTBOT SKIP_UFW TEMPLATE_REF TEMPLATE_BASE_URL
   # shellcheck source=install.sh
   source "$REPO_ROOT/install.sh"
   # install.sh sets -u for itself; bats expects it off
@@ -82,7 +82,7 @@ check_replace() {
 
 @test "parse_args: toggles accept empty, 0, false and 1 as argument" {
   local name value
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_UFW; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_CERTBOT SKIP_UFW; do
     for value in '' 0 false 1; do
       run parse_args "$name=$value"
       [ "$status" -eq 0 ] || {
@@ -95,7 +95,7 @@ check_replace() {
 
 @test "parse_args: toggles accept empty, 0, false and 1 from the environment" {
   local name value
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_UFW; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_CERTBOT SKIP_UFW; do
     for value in '' 0 false 1; do
       printf -v "$name" '%s' "$value"
       run parse_args
@@ -110,7 +110,7 @@ check_replace() {
 
 @test "parse_args: a toggle set to yes is rejected, as argument and from env" {
   local name
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_UFW; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_CERTBOT SKIP_UFW; do
     run parse_args "$name=yes"
     [ "$status" -eq 1 ]
     [[ $output == *"Invalid $name=yes"* ]]
@@ -321,6 +321,87 @@ stub_apt() {
   [ ! -s "$APT_LOG" ]
   [[ $output == *"Skipping package upgrade (SKIP_UPGRADE=1)."* ]]
   [[ $output != *Upgrading* ]]
+}
+
+# Stubs the three commands require_snapd reads: systemctl is-enabled
+# prints SERVICE_STATE and SOCKET_STATE, dpkg-query prints DPKG_STATUS
+# (failing when empty, as for a package dpkg never saw) and apt-cache
+# policy shows CANDIDATE. Each logs its name to SNAPD_LOG.
+stub_snapd() {
+  SERVICE_STATE=$1 SOCKET_STATE=$2 DPKG_STATUS=$3 CANDIDATE=$4
+  SNAPD_LOG=$BATS_TEST_TMPDIR/snapd
+  : >"$SNAPD_LOG"
+  systemctl() {
+    echo systemctl >>"$SNAPD_LOG"
+    printf '%s\n%s\n' "$SERVICE_STATE" "$SOCKET_STATE"
+    [ "$SERVICE_STATE" = enabled ]
+  }
+  dpkg-query() {
+    echo dpkg-query >>"$SNAPD_LOG"
+    [ -n "$DPKG_STATUS" ] || return 1
+    printf '%s' "$DPKG_STATUS"
+  }
+  apt-cache() {
+    echo apt-cache >>"$SNAPD_LOG"
+    printf 'snapd:\n  Installed: (none)\n  Candidate: %s\n' "$CANDIDATE"
+  }
+}
+
+@test "require_snapd: SKIP_CERTBOT=1 checks nothing" {
+  stub_snapd masked masked '' '(none)'
+  SKIP_CERTBOT=1
+  run require_snapd
+  [ "$status" -eq 0 ]
+  [ ! -s "$SNAPD_LOG" ]
+}
+
+@test "require_snapd: installed and enabled passes" {
+  stub_snapd enabled enabled 'install ok installed' 2.66
+  run require_snapd
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "require_snapd: a masked service or socket is refused" {
+  local states
+  for states in 'masked enabled' 'enabled masked' 'masked masked'; do
+    # shellcheck disable=SC2086 # two words on purpose
+    stub_snapd $states 'install ok installed' 2.66
+    run require_snapd
+    [ "$status" -eq 1 ] || {
+      echo "accepted $states: $output"
+      return 1
+    }
+    [[ $output == *"snapd is masked"* ]]
+    [[ $output == *"systemctl unmask snapd.service snapd.socket"* ]]
+    [[ $output == *"SKIP_CERTBOT=1"* ]]
+  done
+}
+
+@test "require_snapd: not installed with an apt candidate passes" {
+  local status_line
+  for status_line in '' 'deinstall ok config-files'; do
+    stub_snapd disabled disabled "$status_line" 2.66
+    run require_snapd
+    [ "$status" -eq 0 ] || {
+      echo "refused '$status_line': $output"
+      return 1
+    }
+  done
+}
+
+@test "require_snapd: not installed with no apt candidate is refused" {
+  local candidate
+  for candidate in '(none)' ''; do
+    stub_snapd disabled disabled '' "$candidate"
+    run require_snapd
+    [ "$status" -eq 1 ] || {
+      echo "accepted candidate '$candidate': $output"
+      return 1
+    }
+    [[ $output == *"snapd is not installed and apt cannot install it"* ]]
+    [[ $output == *"SKIP_CERTBOT=1"* ]]
+  done
 }
 
 @test "take_lock: succeeds while the lock is free" {
