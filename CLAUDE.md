@@ -55,7 +55,13 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
   `raw.githubusercontent.com/.../$TEMPLATE_REF/templates`;
   `TEMPLATE_REF` defaults to `INSTALLER_REF`. Both are **env only** (not
   `KEY=VALUE` args); `parse_args` rejects a `TEMPLATE_REF` outside
-  `[A-Za-z0-9._/-]` or containing `..`, before the root check.
+  `[A-Za-z0-9._/-]` or containing `..`, and a `TEMPLATE_BASE_URL` not
+  matching `^(https|file)://.+` (case-sensitive; `http://` refused on dev
+  and release builds alike), before the root check and `--version`.
+- Downloads go through `fetch_url <url> <out>`: `curl -fsSL --proto
+  '=https,file' --proto-redir '=https' --tlsv1.2 --retry 3 --max-time 60`.
+  `install_bun` still runs its own `curl` (Phase 4b replaces it); the
+  Cloudflare updater keeps its own flags.
 - Three lines near the top are release slots: `INSTALLER_VERSION=dev`,
   `INSTALLER_REF=main`, `TEMPLATE_SHA256=''`. The repo copy is the **dev
   channel** (templates from `main`, unverified). `build-installer.sh`
@@ -69,7 +75,10 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
   a `TEMPLATE_BASE_URL` mirror); another ref prints one warning and
   skips it. Local templates are never verified.
 - `--version`/`-V` and `--help`/`-h` exit 0 before the root check;
-  `print_version` also runs at the start of `main`; `start_log` writes
+  `print_version` prints a second `templates:` line: `verified against
+  embedded SHA-256 sums`, `not verified (TEMPLATE_REF differs from
+  INSTALLER_REF)` or `not verified (dev channel)`. It also runs at the
+  start of `main`; `start_log` writes
   the version; `application.info` records `installer_version` and
   `template_ref` (`local` when a local `templates/` exists).
 - Gotcha: template edits on a branch reach curl-piped installs only once
@@ -323,14 +332,16 @@ Re-running must be safe and never clobber user edits:
   the process, MOTD diversions survive a
   `base-files` reinstall), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
   <install.sh` with `TEMPLATE_BASE_URL=file:///workspace/templates`;
-  Cloudflare updater and `conf.d` installed; unknown-arg and
-  `TEMPLATE_REF=../x` rejection; `--version` names the ref; `--help` as
-  non-root),
+  Cloudflare updater and `conf.d` installed; unknown-arg,
+  `TEMPLATE_REF=../x` and `TEMPLATE_BASE_URL=http://...` rejection, error
+  files under `/root/piped-errors`; `--version` names the ref and says
+  `not verified (dev channel)`; `--help` as non-root),
   `test_release_build` (`build-installer.sh 9.9.9 /root/...`;
-  `SHA256SUMS` and `--version`; pinned piped install verifies `file://`
-  templates; a tampered `application.info` fails the re-run, old file
-  byte-identical, no temp file left; `TEMPLATE_REF=main` warns and skips
-  verification),
+  `SHA256SUMS` and `--version` (`verified against embedded SHA-256
+  sums`); pinned piped install verifies `file://` templates; a tampered
+  `application.info` fails the re-run, old file byte-identical, no temp
+  file left; `TEMPLATE_REF=main` warns, skips verification and logs
+  `not verified (TEMPLATE_REF differs ...)`),
   `test_fail_loudly` (broken `nginx-default.conf` in a copy of the repo
   exits non-zero with the trap message, no colour escapes off-TTY; then
   `systemctl mask snapd.service snapd.socket` is refused with the masked
@@ -371,7 +382,10 @@ Re-running must be safe and never clobber user edits:
 - `install.bats`: `replace_placeholder` (`\1`, `&`, `|`, newline, empty,
   mode and inode), `parse_args` toggles as arg and env, the
   `SKIP_UPGRADE`/`FULL_UPGRADE` conflict (args, env, mixed), `TEMPLATE_REF`,
-  `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
+  `TEMPLATE_BASE_URL` (`http://`, `ftp://`, `HTTPS://`, no scheme, bare
+  `file:` refused; `https://` and `file:///` accepted), `fetch_url` flags
+  (`curl` stubbed), `print_version` verification line (dev, pinned on its
+  ref, pinned on another ref), `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
   22.04, other distro, bad or missing `VERSION_ID`, missing file),
   `apt_update` retries (`apt-get` and `sleep` stubbed as functions),
   `upgrade_packages` modes (default, full, skipped: no `apt-get` call),

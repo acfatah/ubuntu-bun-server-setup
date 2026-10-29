@@ -26,6 +26,7 @@ version=$(bash "$dist/install.sh" --version)
 echo "$version"
 grep -q "ubuntu-bun-server-setup 9.9.9" <<<"$version"
 grep -q "templates: v9.9.9 from https://raw.githubusercontent.com/.*/v9.9.9/templates" <<<"$version"
+grep -q "templates: verified against embedded SHA-256 sums" <<<"$version"
 
 # Pinned piped install; the file:// mirror holds this checkout's
 # templates, which match the embedded sums
@@ -58,6 +59,7 @@ assert_equals "files in /var/lib/app-info" "application.info" "$(ls -A /var/lib/
 log=$test_dir/override.log
 (cd "$work_dir" && TEMPLATE_REF=main TEMPLATE_BASE_URL=file://$tampered bash -s -- SKIP_BUN_APP=1 SKIP_CLOUDFLARE=1 <"$dist/install.sh" 2>&1 | tee "$log")
 assert_file_contains "$log" "TEMPLATE_REF=main differs from v9.9.9; templates are not verified"
+assert_file_contains "$log" "templates: not verified (TEMPLATE_REF differs from INSTALLER_REF)"
 if grep -q "Checksum OK" "$log"; then
   echo "${RED}Assertion failed:${NC} override run verified templates" >&2
   exit 1
