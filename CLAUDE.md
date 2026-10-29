@@ -37,10 +37,12 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
   when no printer flags are passed. `.shellcheckrc` sets
   `external-sources=true`, so no `-x`.
 - `shellcheck`, `shfmt` and `actionlint` must be on `PATH`, or pass an
-  override, e.g.
-  `make lint SHELLCHECK='docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.10.0'`
-  (`SHFMT`: `mvdan/shfmt:v3.8.0`; `ACTIONLINT`: `rhysd/actionlint:1.7.12`;
-  `BATS`: `docker run --rm -v "$PWD:/code:ro" -w /code bats/bats:1.14.0`).
+  override. Write `$$PWD`: make turns `$$` into `$`, while a bare `$PWD`
+  becomes `$P` plus `WD` and mounts the wrong directory.
+  - `make lint SHELLCHECK='docker run --rm -v "$$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.10.0'`
+  - `make format-check SHFMT='docker run --rm -v "$$PWD:/mnt:ro" -w /mnt mvdan/shfmt:v3.8.0'`
+  - `make lint-actions ACTIONLINT='docker run --rm -v "$$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12'`
+  - `make test-unit BATS='docker run --rm -v "$$PWD:/code:ro" -w /code bats/bats:1.14.0'`
 
 ## Architecture
 

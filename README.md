@@ -52,6 +52,14 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 | [Nginx][4]   | Ubuntu apt ([22.04][5], [24.04][10]) | [BSD-2-Clause][6] |
 | [Certbot][7] | Snap, [latest release][8] | [Apache 2.0][9] |
 
+## Out of scope
+
+The installer sets up one host for one Bun app. It does not cover:
+
+- **Several apps per host, containers, or config management.** Ansible, Terraform and similar tools can run the installer, but it ships no integration for them.
+- **Host hardening.** SSH hardening, fail2ban and CIS benchmarks belong to your host's baseline image.
+- **Logging and metrics agents.** The data lives in the systemd journal (`journalctl -u bun-app`), the Nginx logs under `/var/log/nginx/`, and the app state in `/var/lib/bun-app`; pick your own agent to ship it.
+
 ## Quick Start
 
 Pipe the latest release's installer to bash (runs as root with sudo):
