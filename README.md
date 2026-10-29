@@ -17,7 +17,9 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 - Creates a systemd service `bun-app` for running the Bun app as an
   unprivileged `bun-app` user inside a systemd sandboxing profile (see
   [Security](#security)).
-- Installs Bun system-wide at `/usr/local/bin/bun`.
+- Installs a pinned Bun release system-wide at `/usr/local/bin/bun`, after
+  checking its SHA-256 sum (`BUN_VERSION` picks another; see
+  [Bun version](#bun-version)).
 - Configures Nginx as a reverse proxy to `localhost:3000` and serves static files 
   from `/var/www/app/dist` (or `/var/www/html` if sample app is skipped). The
   sample app binds `127.0.0.1` only, so Bun is reachable just through Nginx.
@@ -58,7 +60,7 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 
 | Software     | Source | License |
 | ---          | ---    | ---     |
-| [Bun][1]     | Official installer, [latest release][2] | [MIT][3] |
+| [Bun][1]     | [GitHub release][2] zip, pinned (1.4.4), SHA-256 verified | [MIT][3] |
 | [Nginx][4]   | Ubuntu apt ([22.04][5], [24.04][10]) | [BSD-2-Clause][6] |
 | [Certbot][7] | Snap, [latest release][8] | [Apache 2.0][9] |
 
@@ -142,9 +144,9 @@ sha256sum -c SHA256SUMS
 sudo bash install.sh
 ```
 
-`--version` prints the installer version, where its templates come from
-and whether they are verified; `--help` lists the toggles. Neither needs
-root:
+`--version` prints the installer version, where its templates come from,
+whether they are verified, and the Bun version it installs; `--help` lists
+the toggles. Neither needs root:
 
 ```bash
 curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/download/install.sh | bash -s -- --version
@@ -176,12 +178,52 @@ are not `KEY=VALUE` arguments; with `sudo`, put them after it, as in
   installer still verifies what it downloads from there.
 
 Downloads use TLS 1.2 or later, follow redirects to `https://` only, retry
-transient errors 3 times, and give up after 60 seconds per attempt.
+transient errors 3 times, and give up after 60 seconds per attempt (10
+minutes for the Bun zip).
+
+### Bun version
+
+Bun comes from its GitHub release zip, not from `bun.sh/install`. Each
+installer pins one Bun version (1.4.4), the same in the development channel
+and in releases; `--version` prints it as a `bun:` line.
+
+- **Pinned (default):** the zip is checked against SHA-256 sums built into
+  the installer, for `linux-x64`, `linux-x64-baseline` (x64 CPUs without
+  AVX2) and `linux-aarch64`.
+- **`BUN_VERSION=X.Y.Z`:** that release, checked against the release's own
+  `SHASUMS256.txt`. Weaker than the pin: the sums come from the same place
+  as the zip.
+- **`BUN_VERSION=latest`:** the newest release, looked up on GitHub first,
+  then handled like `X.Y.Z`.
+- **Anything else** (`v1.2.3`, `1.2`, `yes`) exits 1 before anything is
+  installed.
+
+The zip is downloaded, verified and unpacked in a temporary directory.
+Only then is the binary copied next to `/usr/local/bin/bun`, where it must
+report the expected version before it is renamed over the old one. A
+checksum mismatch stops the install with nothing written to
+`/usr/local/bin`, and the existing Bun stays as it was.
+`/usr/local/bin/bunx` is a link to `bun`, as the upstream installer makes
+it.
+
+`BUN_DOWNLOAD_BASE_URL=<url>` (environment only, like `TEMPLATE_BASE_URL`)
+points at a mirror laid out like the releases:
+`<url>/bun-v1.4.4/bun-linux-x64.zip`, plus `SHASUMS256.txt` for unpinned
+versions. `https://` and `file://` only. `latest` is still looked up on
+GitHub.
+
+```bash
+sudo bash install.sh BUN_VERSION=1.3.0
+sudo BUN_VERSION=latest bash install.sh
+```
 
 ## Re-running the installer
 
-Re-running upgrades packages (unless `SKIP_UPGRADE=1`) and Bun, and keeps
-what you changed. Each kept
+Re-running upgrades packages (unless `SKIP_UPGRADE=1`), brings Bun to the
+pinned version (or `BUN_VERSION`), and keeps what you changed. A Bun of
+another version is replaced; the same version is left untouched, so
+`BUN_VERSION=1.3.0` on one run is undone by a later run without it. Each
+kept
 file is reported as `Kept existing <path>`. Only one run at a time: a run
 holds `/run/lock/bun-installer.lock`, and another run started meanwhile
 (say, an operator while cloud-init still installs) exits 1 with `Another
@@ -371,8 +413,10 @@ The Bun app runs as `bun-app`, a system user with no login shell
 (`/usr/sbin/nologin`) and no password. Remote code execution in the app
 yields that user's rights, not root.
 
-Bun is installed to `/usr/local/bin/bun` (via `BUN_INSTALL=/usr/local`) so
-non-root users can execute it. Hosts provisioned by older versions of this
+Bun is installed to `/usr/local/bin/bun`, a root-owned `0755` file, so
+non-root users can execute it but not change it. The installer never runs
+a downloaded script as root: it installs the verified release binary (see
+[Bun version](#bun-version)). Hosts provisioned by older versions of this
 installer had `/usr/local/bin/bun` symlinked into `/root/.bun`, which
 `bun-app` cannot read; re-running the installer replaces that symlink with a
 real binary. `/root/.bun` is left in place and can be removed manually.
@@ -561,7 +605,14 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   `Cache-Control` on `/assets/`, a `Connection: upgrade` header sent only
   for upgrade requests, the root-only `/etc/bun-app.env`, the non-root `bun-app` service user, read-only
   code / writable state dir, Bun listening on `127.0.0.1:3000` only, port
-  22 limited when no sshd is installed, and `certbot` availability.
+  22 limited when no sshd is installed, `certbot` availability, and the
+  pinned Bun version with its embedded checksum and `bunx` link.
+- `test_bun_pin.sh` — rejects `BUN_VERSION=yes`; a tampered zip on a
+  `file://` mirror fails with nothing in `/usr/local/bin`; a bad
+  `SHASUMS256.txt` for `BUN_VERSION=1.4.3` fails and leaves the installed
+  Bun byte-identical; `BUN_VERSION=1.4.3` replaces the pin, a default run
+  brings it back, another run leaves it alone, and `BUN_VERSION=latest`
+  installs the newest release.
 - `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks
   that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
   content, that the stock Nginx site is kept and no proxy snippet or map
@@ -671,6 +722,10 @@ Pass toggles as environment variables or as `KEY=VALUE` arguments to
   groups filter traffic. A later run without it enables UFW; see
   [Re-running the installer](#re-running-the-installer).
 
+- `BUN_VERSION=X.Y.Z` or `BUN_VERSION=latest` — Not an on/off toggle:
+  install that Bun release instead of the pinned one. Any other value is
+  rejected. See [Bun version](#bun-version).
+
 Example:
 
 ```bash
@@ -681,6 +736,7 @@ sudo bash install.sh SKIP_CLOUDFLARE=1
 sudo bash install.sh SKIP_UFW=1
 sudo bash install.sh SKIP_UPGRADE=1
 sudo bash install.sh SKIP_CERTBOT=1
+sudo bash install.sh BUN_VERSION=latest
 ```
 
 ## Notes

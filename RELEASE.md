@@ -100,6 +100,34 @@ make dist                      # dist/install.sh for the VERSION file
 ./build-installer.sh 1.2.3 /tmp/out
 ```
 
+## Bumping the Bun pin
+
+The pinned Bun is a plain constant in `install.sh`, the same in the
+development channel and in releases; `build-installer.sh` does not touch
+it. Bump it in a normal pull request, before a release:
+
+1. Pick the release on <https://github.com/oven-sh/bun/releases> and set
+   `BUN_PINNED_VERSION=X.Y.Z` in `install.sh`.
+2. Copy the `bun-linux-x64.zip`, `bun-linux-x64-baseline.zip` and
+   `bun-linux-aarch64.zip` lines from that release's `SHASUMS256.txt` into
+   `BUN_PINNED_SHA256`, in the same `<sha256>  <name>` form.
+3. Cross-check: download the three zips and compare `sha256sum` with the
+   lines you copied.
+
+   ```bash
+   v=X.Y.Z
+   for a in x64 x64-baseline aarch64; do
+     curl -fsSLO "https://github.com/oven-sh/bun/releases/download/bun-v$v/bun-linux-$a.zip"
+   done
+   sha256sum bun-linux-*.zip
+   ```
+
+4. Update the version named in `README.md` (Software Included, Bun
+   version).
+5. Run `make test-unit` and `make test`; `test_default` and
+   `test_bun_pin` install the new pin. `test_bun_pin` uses 1.4.3 as
+   "another version": keep it an existing release other than the pin.
+
 ## Testing the release script
 
 ```bash

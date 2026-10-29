@@ -58,10 +58,11 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
   `[A-Za-z0-9._/-]` or containing `..`, and a `TEMPLATE_BASE_URL` not
   matching `^(https|file)://.+` (case-sensitive; `http://` refused on dev
   and release builds alike), before the root check and `--version`.
-- Downloads go through `fetch_url <url> <out>`: `curl -fsSL --proto
-  '=https,file' --proto-redir '=https' --tlsv1.2 --retry 3 --max-time 60`.
-  `install_bun` still runs its own `curl` (Phase 4b replaces it); the
-  Cloudflare updater keeps its own flags.
+- Downloads go through `fetch_url <url> <out> [max-time]`: `curl -fsSL
+  --proto '=https,file' --proto-redir '=https' --tlsv1.2 --retry 3
+  --max-time 60` (the third arg overrides 60; the Bun zip passes 600).
+  `resolve_bun_version` runs its own `curl` (`-w '%{url_effective}'`,
+  same flags, https only); the Cloudflare updater keeps its own flags.
 - Three lines near the top are release slots: `INSTALLER_VERSION=dev`,
   `INSTALLER_REF=main`, `TEMPLATE_SHA256=''`. The repo copy is the **dev
   channel** (templates from `main`, unverified). `build-installer.sh`
@@ -77,13 +78,59 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
 - `--version`/`-V` and `--help`/`-h` exit 0 before the root check;
   `print_version` prints a second `templates:` line: `verified against
   embedded SHA-256 sums`, `not verified (TEMPLATE_REF differs from
-  INSTALLER_REF)` or `not verified (dev channel)`. It also runs at the
-  start of `main`; `start_log` writes
+  INSTALLER_REF)` or `not verified (dev channel)`, then a `bun:` line
+  (see Bun below). It also runs at the start of `main`; `start_log` writes
   the version; `application.info` records `installer_version` and
   `template_ref` (`local` when a local `templates/` exists).
 - Gotcha: template edits on a branch reach curl-piped installs only once
   merged to `main` (dev channel) or released (pinned). Tests pipe with
   `TEMPLATE_BASE_URL=file:///workspace/templates` to cover them earlier.
+
+### Bun (`install_bun`)
+
+- **Pin:** `BUN_PINNED_VERSION` and `BUN_PINNED_SHA256` (`<sha>  <zip>`
+  for `bun-linux-x64.zip`, `-x64-baseline.zip`, `-aarch64.zip`) sit under
+  the release slots. Plain constants, same in dev and releases, bumped by
+  hand (RELEASE.md "Bumping the Bun pin"); `build-installer.sh` never
+  touches them.
+- **`BUN_VERSION`** (env or `KEY=VALUE` arg; default the pin):
+  `check_bun_version` accepts `latest` or `^[0-9]+\.[0-9]+\.[0-9]+$`,
+  else `Invalid BUN_VERSION=<v> (use X.Y.Z or latest)`, exit 1. Runs on
+  the env value before the arg loop (so `--version` never prints a bad
+  value) and on each `BUN_VERSION=` arg. Not part of the 0/1 toggle loops.
+- **`BUN_DOWNLOAD_BASE_URL`** (env only; default
+  `github.com/oven-sh/bun/releases/download`): same `^(https|file)://.+`
+  check as `TEMPLATE_BASE_URL`. URLs are `<base>/bun-v<ver>/<zip>` and
+  `.../SHASUMS256.txt`. `latest` always resolves on GitHub.
+- **Helpers:** `bun_asset` (`uname -m`; x64 without an `avx2` flag in
+  `$CPUINFO` gets `-baseline`; other arches refused), `resolve_bun_version`
+  (`latest` → redirect of `releases/latest` → `bun-vX.Y.Z` tag, checked),
+  `bun_expected_sha <ver> <zip> <dir>` (embedded line for the pin, else the
+  release's `SHASUMS256.txt` fetched into `<dir>`; missing entry fails),
+  `fetch_bun <ver> <zip> <dir>` (download, `sha256sum`, `Checksum OK:
+  <zip> (embedded|SHASUMS256.txt)` on stderr, `unzip`; prints the binary
+  path, runs nothing).
+- **Flow:** resolve target and asset → `runuser -u nobody -- bun
+  --version` equals target: `Bun <v> already installed.`, return (no
+  download) → `Replacing Bun <old> with <new>...` or `Installing ...` →
+  `fetch_bun` in `mktemp -d` → `mktemp /usr/local/bin/.bun.XXXXXX`,
+  `install -m 755` → its `--version` must equal the target → `mv` over
+  `bun` (also replaces a legacy symlink) → `ln -sfn bun bunx`. Every
+  failure removes the work dir and temp file and returns 1; nothing is
+  written to `/usr/local/bin` before the checksum passes.
+- Gotcha: never execute from the work dir. `/tmp` is a noexec tmpfs in
+  the e2e containers (and on hardened hosts), so `--version` runs on the
+  temp copy in `/usr/local/bin`.
+- Helpers are called as `if ! x=$(helper)`, so a failure reaches the
+  cleanup (`rm -rf` of the work dir) before `return 1`; a bare failing
+  `x=$(helper)` would exit on errexit and leave the temp dir. Inside that
+  `if`, errexit is off in the helpers too, so they check every step.
+- `print_version` adds `bun: <BUN_VERSION> (pinned <pin>, verified
+  against embedded SHA-256)`, or `... verified against the release's
+  SHASUMS256.txt)` when it differs. No network.
+- `application_version` in `application.info` is `/usr/local/bin/bun
+  --version` (not `bun` on `PATH`). `bun-app` restarts every run, so a
+  replaced Bun takes effect.
 
 ### Placeholders
 
@@ -112,8 +159,8 @@ Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
 colours) and `set -Eeuo pipefail`.
 
 `main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `apt_update` (retried) → `require_snapd` → `upgrade_packages` (`apt-get upgrade`;
-`full-upgrade` with `FULL_UPGRADE=1`, none with `SKIP_UPGRADE=1`) → base packages → UFW rules (no reset; see Idempotency) → snapd (apt) + Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
-`/usr/local/bin/bun`) → `bun-app` system user → sample app →
+`full-upgrade` with `FULL_UPGRADE=1`, none with `SKIP_UPGRADE=1`) → base packages → UFW rules (no reset; see Idempotency) → snapd (apt) + Certbot snap → Bun (pinned release zip, verified →
+`/usr/local/bin/bun`; see Bun) → `bun-app` system user → sample app →
 `install_cloudflare` (updater, units, first fetch, `conf.d`, timer; first
 in `configure_nginx`, so its `nginx -t` sees the old site) → Nginx config →
 `nginx -t` → restart → systemd unit +
@@ -162,8 +209,9 @@ rewritten in `/etc/environment` → MOTD → summary.
   `/srv/app/data`) and `CacheDirectory=bun-app`.
 - Never add `MemoryDenyWriteExecute`: Bun's JIT needs W+X memory and the
   unit crash-loops.
-- `install_bun` skips only if `/usr/local/bin/bun` runs as `nobody`
-  (`runuser -u nobody`); a legacy symlink into `/root/.bun` is replaced.
+- `install_bun` probes `/usr/local/bin/bun` as `nobody`
+  (`runuser -u nobody`); a Bun that fails the probe (a legacy symlink into
+  `/root/.bun`) is replaced like one of another version.
   Gotcha: `setpriv --reuid=nobody <bin>` falsely succeeds for binaries
   under `/root`; don't use it for permission probes.
 - `create_app_user` and the data symlink are skipped with `SKIP_BUN_APP=1`.
@@ -317,7 +365,17 @@ Re-running must be safe and never clobber user edits:
   in the process environ, `Connection: upgrade` only on upgrade requests
   (a `bun -e` probe replaces `bun-app` at the end), service runs as
   `bun-app`, code read-only, state dir writable, Bun only
-  on `127.0.0.1:3000`, `22/tcp` limited without sshd),
+  on `127.0.0.1:3000`, `22/tcp` limited without sshd, pinned Bun version
+  with `Checksum OK: ... (embedded)`, `bunx` → `bun`,
+  `application_version`),
+  `test_bun_pin` (re-runs use `SKIP_UPGRADE=1 SKIP_CERTBOT=1`;
+  `BUN_VERSION=yes` writes nothing; a `file:///root/bun-mirror` zip with
+  one appended byte fails with no `/usr/local/bin/bun` and no `.bun.*`
+  temp; a bad `SHASUMS256.txt` for 1.4.3 leaves `bun` byte-identical
+  (`cmp`); 1.4.3 from GitHub replaces the pin, a default run restores it,
+  a third run is `already installed` with inode and mtime unchanged;
+  `latest` installs and names an `X.Y.Z`; the asset comes from sourcing
+  `install.sh` and calling `bun_asset`),
   `test_skip_sample` (`SKIP_BUN_APP=1`, expects `"Hello World"`, no
   `bun-app` user, stock site kept, no snippet or map file, Cloudflare
   `conf.d` present and real-IP-only note; first run with `SKIP_UFW=1`:
@@ -384,8 +442,15 @@ Re-running must be safe and never clobber user edits:
   `SKIP_UPGRADE`/`FULL_UPGRADE` conflict (args, env, mixed), `TEMPLATE_REF`,
   `TEMPLATE_BASE_URL` (`http://`, `ftp://`, `HTTPS://`, no scheme, bare
   `file:` refused; `https://` and `file:///` accepted), `fetch_url` flags
-  (`curl` stubbed), `print_version` verification line (dev, pinned on its
-  ref, pinned on another ref), `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
+  and third-arg time cap (`curl` stubbed), `print_version` verification
+  line (dev, pinned on its ref, pinned on another ref) and `bun:` line
+  (pin, other version, `latest`), `BUN_VERSION` (default is the pin;
+  `X.Y.Z` and `latest` accepted, `yes`, `1.4`, `v1.4.4`, `-canary`,
+  trailing space refused, as arg and env, before the root check),
+  `BUN_DOWNLOAD_BASE_URL`, `BUN_PINNED_SHA256` shape, `bun_asset`
+  (`uname` stubbed, `CPUINFO` in the tmpdir), `bun_expected_sha` and
+  `resolve_bun_version` (`stub_curl_serving` copies a body to `-o` or
+  prints a `-w` URL), `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
   22.04, other distro, bad or missing `VERSION_ID`, missing file),
   `apt_update` retries (`apt-get` and `sleep` stubbed as functions),
   `upgrade_packages` modes (default, full, skipped: no `apt-get` call),
