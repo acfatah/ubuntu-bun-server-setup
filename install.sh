@@ -15,6 +15,7 @@ set -Eeuo pipefail
 #   SKIP_BUN_APP=1    -> skip creating /srv/app Bun app
 #   SKIP_CLOUDFLARE=1 -> skip the Cloudflare IP updater and Nginx files
 #   FULL_UPGRADE=1    -> apt-get full-upgrade instead of upgrade
+#   SKIP_UPGRADE=1    -> apt-get update only, no package upgrade
 #   SKIP_UFW=1        -> leave UFW untouched (rules, policy and state)
 #
 # Template source (env var only):
@@ -22,8 +23,8 @@ set -Eeuo pipefail
 #   TEMPLATE_BASE_URL=<url> -> templates directory URL (mirror, file://)
 #
 # Usage:
-#   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UFW=1]
-#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UFW=1]
+#   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_UFW=1]
+#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_UFW=1]
 #   bash install.sh --version | --help
 # ==============================================================================
 
@@ -42,7 +43,7 @@ OS_RELEASE=/etc/os-release
 APP_INFO_FILE=/var/lib/app-info/application.info
 # What configure_ufw did this run; recorded as ufw= in APP_INFO_FILE
 UFW_STATE=""
-USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UFW=1]"
+USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_UFW=1]"
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw snapd)
 # apt-get update attempts and the pause between them, in seconds
 APT_UPDATE_TRIES=3
@@ -141,6 +142,7 @@ Toggles (KEY=VALUE argument or env var; only 1 enables):
   SKIP_BUN_APP=1     skip the sample app, its user and its unit
   SKIP_CLOUDFLARE=1  skip the Cloudflare IP updater and Nginx files
   FULL_UPGRADE=1     apt-get full-upgrade instead of upgrade
+  SKIP_UPGRADE=1     apt-get update only, no package upgrade
   SKIP_UFW=1         leave UFW untouched (rules, policy and state)
 
 Template source (env var only):
@@ -214,6 +216,11 @@ full_upgrade() {
   [[ ${FULL_UPGRADE:-} == 1 ]]
 }
 
+# True when packages are not upgraded (apt-get update still runs).
+skip_upgrade() {
+  [[ ${SKIP_UPGRADE:-} == 1 ]]
+}
+
 # True when UFW is left untouched.
 skip_ufw() {
   [[ ${SKIP_UFW:-} == 1 ]]
@@ -247,6 +254,9 @@ parse_args() {
       FULL_UPGRADE=*)
         FULL_UPGRADE="${arg#*=}"
         ;;
+      SKIP_UPGRADE=*)
+        SKIP_UPGRADE="${arg#*=}"
+        ;;
       SKIP_UFW=*)
         SKIP_UFW="${arg#*=}"
         ;;
@@ -259,7 +269,7 @@ parse_args() {
   done
 
   # Env var or argument; a typo like "yes" must not silently fall back
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_UFW; do
     case ${!name:-} in
       '' | 0 | false | 1) ;;
       *)
@@ -269,6 +279,13 @@ parse_args() {
         ;;
     esac
   done
+
+  # Either guess would be wrong for someone; make the operator pick
+  if skip_upgrade && full_upgrade; then
+    echo -e "${RED}Invalid combination: SKIP_UPGRADE=1 and FULL_UPGRADE=1 conflict (set only one)${NC}" >&2
+    echo "$USAGE" >&2
+    exit 1
+  fi
 
   if skip_app; then
     NGINX_ROOT=/var/www/html
@@ -313,6 +330,7 @@ require_ubuntu() {
 # fails verification (a mirror caught mid-sync).
 apt_update() {
   local try
+  echo -e "${GREEN}Updating package lists (apt-get update)...${NC}"
   for ((try = 1; try <= APT_UPDATE_TRIES; try++)); do
     apt-get -qqy -o Acquire::Retries=3 update && return 0
     ((try < APT_UPDATE_TRIES)) || break
@@ -323,15 +341,17 @@ apt_update() {
   return 1
 }
 
-# Updates APT metadata and upgrades packages non-interactively. Plain
-# upgrade by default (never removes packages); full-upgrade with
-# FULL_UPGRADE=1. --force-confdef/--force-confold keep existing configs.
-apt_update_upgrade() {
+# Upgrades packages non-interactively. Plain upgrade by default (never
+# removes packages); full-upgrade with FULL_UPGRADE=1; none with
+# SKIP_UPGRADE=1. --force-confdef/--force-confold keep existing configs.
+upgrade_packages() {
   local mode=upgrade
   full_upgrade && mode=full-upgrade
 
-  export DEBIAN_FRONTEND=noninteractive
-  apt_update
+  if skip_upgrade; then
+    echo -e "${YELLOW}Skipping package upgrade (SKIP_UPGRADE=1).${NC}"
+    return
+  fi
   echo -e "${GREEN}Upgrading packages (apt-get ${mode})...${NC}"
   apt-get -qqy -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' "$mode"
 }
@@ -818,7 +838,9 @@ main() {
     echo -e "${YELLOW}TEMPLATE_REF=${TEMPLATE_REF} differs from ${INSTALLER_REF}; templates are not verified.${NC}"
   fi
   require_ubuntu
-  apt_update_upgrade
+  export DEBIAN_FRONTEND=noninteractive
+  apt_update
+  upgrade_packages
   install_base_packages
   configure_ufw
   install_certbot

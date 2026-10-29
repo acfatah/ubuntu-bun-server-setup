@@ -102,8 +102,8 @@ only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
 Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
 colours) and `set -Eeuo pipefail`.
 
-`main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `apt_update` (retried) → `apt-get upgrade` (`full-upgrade` with
-`FULL_UPGRADE=1`) → base packages → UFW rules (no reset; see Idempotency) → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
+`main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `apt_update` (retried) → `upgrade_packages` (`apt-get upgrade`;
+`full-upgrade` with `FULL_UPGRADE=1`, none with `SKIP_UPGRADE=1`) → base packages → UFW rules (no reset; see Idempotency) → Certbot snap → Bun (`BUN_INSTALL=/usr/local` →
 `/usr/local/bin/bun`) → `bun-app` system user → sample app →
 `install_cloudflare` (updater, units, first fetch, `conf.d`, timer; first
 in `configure_nginx`, so its `nginx -t` sees the old site) → Nginx config →
@@ -121,7 +121,7 @@ rewritten in `/etc/environment` → MOTD → summary.
 - `apt_update` runs `apt-get update` with `Acquire::Retries=3`, up to
   `APT_UPDATE_TRIES` (3) times, `APT_UPDATE_DELAY` (10 s) apart, logging
   each retry; the last failure returns 1 and trips the trap (reported in
-  `apt_update_upgrade`). `Acquire::Retries` alone misses an InRelease
+  `main`). `Acquire::Retries` alone misses an InRelease
   that downloads but fails verification. `test_host_safety` uses
   `apt_update_retry` from `common.sh` for its own update.
 - `print_summary` checks `certbot --version`, `nginx` and (unless skipped)
@@ -151,13 +151,13 @@ rewritten in `/etc/environment` → MOTD → summary.
   under `/root`; don't use it for permission probes.
 - `create_app_user` and the data symlink are skipped with `SKIP_BUN_APP=1`.
 
-### Toggles (`SKIP_BUN_APP`, `SKIP_CLOUDFLARE`, `FULL_UPGRADE`, `SKIP_UFW`)
+### Toggles (`SKIP_BUN_APP`, `SKIP_CLOUDFLARE`, `FULL_UPGRADE`, `SKIP_UPGRADE`, `SKIP_UFW`)
 
 - Set as env var or `KEY=VALUE` arg (`parse_args`, allowlisted; unknown
   args exit 1 before the root check).
 - Only **`1`** enables; checks go through `skip_app` / `skip_cloudflare` /
-  `full_upgrade` / `skip_ufw`. `parse_args` accepts empty, `0`, `false`
-  (off) and `1` for all four; any
+  `full_upgrade` / `skip_upgrade` / `skip_ufw`. `parse_args` accepts
+  empty, `0`, `false` (off) and `1` for all five; any
   other value exits 1 with `Invalid <NAME>=<value>` before the root check.
   Adding a toggle means extending both loops in `parse_args`, `USAGE`,
   `print_help`, the header comment and the three toggle loops in
@@ -165,6 +165,10 @@ rewritten in `/etc/environment` → MOTD → summary.
 - `FULL_UPGRADE=1` swaps `apt-get upgrade` for `full-upgrade`. The summary
   prints a reboot hint when `/var/run/reboot-required` exists (a note, not
   a problem: the return value is unchanged).
+- `SKIP_UPGRADE=1` keeps `apt_update` (base packages need fresh indexes)
+  and makes `upgrade_packages` print `Skipping package upgrade` and
+  return. With `FULL_UPGRADE=1` too, `parse_args` exits 1 with `Invalid
+  combination: ...` before the root check: no precedence rule.
 - `SKIP_UFW=1` leaves UFW untouched (no rule, policy or enable) and
   records `ufw="skipped"`.
 
@@ -316,11 +320,14 @@ Re-running must be safe and never clobber user edits:
   `test_fail_loudly` (broken `nginx-default.conf` in a copy of the repo
   exits non-zero with the trap message, no colour escapes off-TTY; then a
   faked 20.04 `/etc/os-release` is refused before `Upgrading packages`),
-  `test_host_safety` (`FULL_UPGRADE=yes` rejected, openssh-server on port
+  `test_host_safety` (`FULL_UPGRADE=yes` and `SKIP_UPGRADE=1
+  FULL_UPGRADE=1` rejected, the latter with no log line; openssh-server on port
   2222 → `2222/tcp` limited and no `22/tcp`; extra rule and `allow`
   incoming policy survive a `FULL_UPGRADE=1` re-run; reboot hint;
-  `SKIP_UFW=yes` rejected; after `ufw disable` a third run leaves UFW
-  inactive with a note and `ufw="left-disabled"`),
+  `SKIP_UFW=yes` rejected; after `ufw disable` a third run, with
+  `SKIP_UPGRADE=1`, leaves UFW inactive with a note and
+  `ufw="left-disabled"`, logs `apt-get update` and no `Upgrading
+  packages`),
   `test_cloudflare` (`SKIP_CLOUDFLARE=yes` rejected; files, enabled timer,
   geo in `nginx -T`; stubbed `CLOUDFLARE_IPS_SOURCE`: HTML body, junk
   line, short list, empty family and an `nginx -t` failure all exit
@@ -346,10 +353,12 @@ Re-running must be safe and never clobber user edits:
 - Gotcha: a bare `! cmd` never fails a bats test (set -e ignores it);
   wrap the negation in a function, as `not_gt` in `release.bats` does.
 - `install.bats`: `replace_placeholder` (`\1`, `&`, `|`, newline, empty,
-  mode and inode), `parse_args` toggles as arg and env, `TEMPLATE_REF`,
+  mode and inode), `parse_args` toggles as arg and env, the
+  `SKIP_UPGRADE`/`FULL_UPGRADE` conflict (args, env, mixed), `TEMPLATE_REF`,
   `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
   22.04, other distro, bad or missing `VERSION_ID`, missing file),
   `apt_update` retries (`apt-get` and `sleep` stubbed as functions),
+  `upgrade_packages` modes (default, full, skipped: no `apt-get` call),
   `take_lock` free and held (`LOCK_FILE` in `$BATS_TEST_TMPDIR`),
   `previous_ufw_state` and each `configure_ufw` decision (`ufw` and
   `ssh_ports` stubbed as functions, `APP_INFO_FILE` in the tmpdir);

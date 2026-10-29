@@ -27,8 +27,9 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
   policy (deny incoming, allow outgoing) is set only while UFW is inactive.
   If you disable UFW after an install, re-runs leave it disabled
   (`SKIP_UFW=1` leaves UFW untouched altogether).
-- Upgrades packages with `apt-get upgrade` (`FULL_UPGRADE=1` for
-  `full-upgrade`) and prints a reboot hint when one is required. A failed
+- Upgrades every installed package with `apt-get upgrade` on each run,
+  re-runs included (`FULL_UPGRADE=1` for `full-upgrade`, `SKIP_UPGRADE=1`
+  for none), and prints a reboot hint when one is required. A failed
   `apt-get update` is retried up to three times, 10 seconds apart.
 - Installs a Cloudflare IP updater with a daily systemd timer, so Nginx logs
   the real client IP behind Cloudflare and can optionally refuse requests
@@ -163,7 +164,8 @@ are not `KEY=VALUE` arguments; with `sudo`, put them after it, as in
 
 ## Re-running the installer
 
-Re-running upgrades packages and Bun, and keeps what you changed. Each kept
+Re-running upgrades packages (unless `SKIP_UPGRADE=1`) and Bun, and keeps
+what you changed. Each kept
 file is reported as `Kept existing <path>`. Only one run at a time: a run
 holds `/run/lock/bun-installer.lock`, and another run started meanwhile
 (say, an operator while cloud-init still installs) exits 1 with `Another
@@ -575,13 +577,15 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
 - `test_fail_loudly.sh` — runs a copy of the repo with a broken
   `nginx-default.conf` and checks the installer exits non-zero with the
   `install failed at line N` message and no colour escapes off a terminal.
-- `test_host_safety.sh` — rejects `FULL_UPGRADE=yes`, installs
+- `test_host_safety.sh` — rejects `FULL_UPGRADE=yes` and
+  `SKIP_UPGRADE=1` with `FULL_UPGRADE=1`, installs
   openssh-server on port 2222 and checks UFW limits `2222/tcp` (not 22) and
   the default run uses `apt-get upgrade`. After adding a rule and changing
   the default incoming policy, a `FULL_UPGRADE=1` re-run keeps both, uses
   `full-upgrade`, prints the reboot hint, and adds no duplicate SSH rule.
-  It also rejects `SKIP_UFW=yes`, and after `ufw disable` a third run
-  leaves UFW disabled.
+  It also rejects `SKIP_UFW=yes`, and after `ufw disable` a third run,
+  with `SKIP_UPGRADE=1`, leaves UFW disabled and runs `apt-get update`
+  but no upgrade.
 - `test_cloudflare.sh` — rejects `SKIP_CLOUDFLARE=yes`, checks the updater,
   enabled timer, generated lists and geo after a default install. Against a
   stubbed source (`CLOUDFLARE_IPS_SOURCE`), an HTML body, a junk line, a
@@ -623,6 +627,20 @@ Pass toggles as environment variables or as `KEY=VALUE` arguments to
   prints `Reboot required to finish package upgrades: sudo reboot` when
   `/var/run/reboot-required` exists.
 
+- `SKIP_UPGRADE=1` — Run `apt-get update` (base packages need fresh
+  indexes) but upgrade no package. Use it to re-run for a config fix on a
+  host under change control. It cannot be combined with `FULL_UPGRADE=1`:
+  the pair exits 1 before anything runs. Missing base packages are still
+  installed, at the candidate version.
+
+  Snaps refresh on snapd's own schedule, not the installer's: the Certbot
+  snap updates itself up to four times a day whatever you pass here. To
+  hold it until you refresh it by hand, run
+  `sudo snap refresh --hold certbot`; to keep all snap refreshes in a
+  window, set it, for example
+  `sudo snap set system refresh.timer=fri,23:00-01:00`. A held snap still
+  updates on an explicit `sudo snap refresh certbot`.
+
 - `SKIP_UFW=1` — Leave UFW untouched: no rules, no default policy, no
   `ufw enable`. Use it when another firewall or your cloud's security
   groups filter traffic. A later run without it enables UFW; see
@@ -636,6 +654,7 @@ sudo SKIP_BUN_APP=1 bash install.sh
 sudo bash install.sh SKIP_BUN_APP=1 FULL_UPGRADE=1
 sudo bash install.sh SKIP_CLOUDFLARE=1
 sudo bash install.sh SKIP_UFW=1
+sudo bash install.sh SKIP_UPGRADE=1
 ```
 
 ## Notes

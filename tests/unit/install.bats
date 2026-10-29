@@ -3,7 +3,7 @@
 
 setup() {
   REPO_ROOT=$(cd "$BATS_TEST_DIRNAME/../.." && pwd)
-  unset SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW TEMPLATE_REF TEMPLATE_BASE_URL
+  unset SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_UFW TEMPLATE_REF TEMPLATE_BASE_URL
   # shellcheck source=install.sh
   source "$REPO_ROOT/install.sh"
   # install.sh sets -u for itself; bats expects it off
@@ -82,7 +82,7 @@ check_replace() {
 
 @test "parse_args: toggles accept empty, 0, false and 1 as argument" {
   local name value
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_UFW; do
     for value in '' 0 false 1; do
       run parse_args "$name=$value"
       [ "$status" -eq 0 ] || {
@@ -95,7 +95,7 @@ check_replace() {
 
 @test "parse_args: toggles accept empty, 0, false and 1 from the environment" {
   local name value
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_UFW; do
     for value in '' 0 false 1; do
       printf -v "$name" '%s' "$value"
       run parse_args
@@ -110,7 +110,7 @@ check_replace() {
 
 @test "parse_args: a toggle set to yes is rejected, as argument and from env" {
   local name
-  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UFW; do
+  for name in SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_UFW; do
     run parse_args "$name=yes"
     [ "$status" -eq 1 ]
     [[ $output == *"Invalid $name=yes"* ]]
@@ -120,6 +120,30 @@ check_replace() {
     [[ $output == *"Invalid $name=yes"* ]]
     unset "$name"
   done
+}
+
+# Checks a run's status $1 and output $2 refuse SKIP_UPGRADE=1 with
+# FULL_UPGRADE=1.
+conflict_refused() {
+  [ "$1" -eq 1 ]
+  [[ $2 == *"Invalid combination: SKIP_UPGRADE=1 and FULL_UPGRADE=1"* ]]
+  [[ $2 == *Usage:* ]]
+}
+
+@test "parse_args: SKIP_UPGRADE=1 with FULL_UPGRADE=1 is rejected" {
+  run parse_args SKIP_UPGRADE=1 FULL_UPGRADE=1
+  conflict_refused "$status" "$output"
+  SKIP_UPGRADE=1 FULL_UPGRADE=1 run parse_args
+  conflict_refused "$status" "$output"
+  SKIP_UPGRADE=1 run parse_args FULL_UPGRADE=1
+  conflict_refused "$status" "$output"
+  FULL_UPGRADE=1 run parse_args SKIP_UPGRADE=1
+  conflict_refused "$status" "$output"
+}
+
+@test "parse_args: SKIP_UPGRADE=1 with FULL_UPGRADE=0 is accepted" {
+  run parse_args SKIP_UPGRADE=1 FULL_UPGRADE=0
+  [ "$status" -eq 0 ]
 }
 
 @test "parse_args: unknown argument" {
@@ -270,6 +294,33 @@ stub_apt() {
   [ "$(wc -l <"$APT_LOG")" -eq 3 ]
   [ "$(wc -l <"$SLEEP_LOG")" -eq 2 ]
   [[ $output == *"failed after 3 attempts"* ]]
+}
+
+@test "upgrade_packages: plain upgrade by default" {
+  stub_apt 0
+  run upgrade_packages
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$APT_LOG")" -eq 1 ]
+  [[ $(cat "$APT_LOG") == *" upgrade" ]]
+  [[ $output == *"Upgrading packages (apt-get upgrade)"* ]]
+}
+
+@test "upgrade_packages: FULL_UPGRADE=1 runs full-upgrade" {
+  stub_apt 0
+  FULL_UPGRADE=1
+  run upgrade_packages
+  [ "$status" -eq 0 ]
+  [[ $(cat "$APT_LOG") == *" full-upgrade" ]]
+}
+
+@test "upgrade_packages: SKIP_UPGRADE=1 calls no apt-get" {
+  stub_apt 0
+  SKIP_UPGRADE=1
+  run upgrade_packages
+  [ "$status" -eq 0 ]
+  [ ! -s "$APT_LOG" ]
+  [[ $output == *"Skipping package upgrade (SKIP_UPGRADE=1)."* ]]
+  [[ $output != *Upgrading* ]]
 }
 
 @test "take_lock: succeeds while the lock is free" {
