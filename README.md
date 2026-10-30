@@ -386,6 +386,9 @@ command line, or for the timer with
 Environment=CLOUDFLARE_IPS_SOURCE=/srv/cloudflare-ips
 ```
 
+The unit is sandboxed and cannot see home dirs; see
+[Cloudflare updater sandbox](#cloudflare-updater-sandbox).
+
 ### Removing it
 
 Remove the `cloudflare-only.conf` include from any site first, then:
@@ -499,6 +502,54 @@ Deliberately **not** set:
 `AF_NETLINK` is allowed because `os.networkInterfaces()` needs it, and some
 libraries call it indirectly.
 
+### Limits
+
+The unit also sets these limits:
+
+| Directive | Effect | Change it when |
+| --- | --- | --- |
+| `TimeoutStopSec=30` | systemd sends `SIGTERM`, waits 30 s for in-flight requests, then `SIGKILL`s | Shutdown work (draining queues, closing sockets) takes longer |
+| `LimitNOFILE=65536` | Up to 65536 open files and sockets (the default soft limit is 1024) | Many thousands of WebSockets per process |
+| `#MemoryMax=` (commented out) | No memory cap by default; set one to have the kernel kill a leaking app instead of the host swapping | You know the app's peak memory |
+
+Set any of them in a drop-in (see below), e.g. `MemoryMax=512M`.
+
+- **Gotcha: new installs only.** A re-run keeps an existing
+  `bun-app.service`, so hosts installed before these limits keep systemd's
+  defaults (90 s stop timeout, 1024 files). Add them with
+  `sudo systemctl edit bun-app`.
+
+### Cloudflare updater sandbox
+
+`cloudflare-update-ips.service` runs as root, because the Nginx reload goes
+through systemd, which wants uid 0. The unit confines it instead
+(`systemd-analyze security cloudflare-update-ips`: 9.0 before, 2.2 now):
+
+| Directive | Blocks |
+| --- | --- |
+| `NoNewPrivileges=yes`, `PrivateTmp=yes` | Same as for `bun-app` above |
+| `ProtectSystem=strict` | Writing anywhere except `ReadWritePaths=` |
+| `ReadWritePaths=/etc/nginx/cloudflare /run/lock /var/log/nginx` | Nothing: the lists, the updater's lock, and the logs `nginx -t` opens for writing |
+| `ProtectHome=yes` | Reading `/home`, `/root`, `/run/user` |
+| `PrivateDevices=yes` | Access to physical devices |
+| `ProtectKernelTunables=yes`, `ProtectKernelModules=yes`, `ProtectKernelLogs=yes` | Sysctl writes, module loading, `dmesg` |
+| `ProtectControlGroups=yes`, `ProtectClock=yes`, `ProtectHostname=yes` | Cgroup writes, clock and hostname changes |
+| `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX` | Every socket family but IP (the fetch) and unix (D-Bus, for the reload) |
+| `RestrictNamespaces=yes`, `RestrictRealtime=yes`, `RestrictSUIDSGID=yes` | Namespaces, realtime scheduling, setuid files |
+| `LockPersonality=yes`, `SystemCallArchitectures=native` | Execution domain switches, 32-bit syscalls |
+| `MemoryDenyWriteExecute=yes` | Writable and executable memory (no JIT runs here) |
+| `CapabilityBoundingSet=CAP_DAC_OVERRIDE` | Every capability but one: `nginx -t` opens `/var/log/nginx/*.log`, owned by `www-data`, for writing |
+| `SystemCallFilter=@system-service`, `SystemCallErrorNumber=EPERM` | Syscalls outside systemd's set for ordinary services (mount, reboot, kexec, ...) |
+
+- **Gotcha: a mirror must sit outside home dirs.** `ProtectHome=yes` hides
+  `/root` and `/home`, so a `CLOUDFLARE_IPS_SOURCE` there fails under the
+  timer (it still works from a shell). Use a path such as
+  `/srv/cloudflare-ips`.
+- **New installs only,** as for the limits: a re-run keeps an existing
+  unit. Copy the `[Service]` lines from
+  `templates/cloudflare-update-ips.service` into
+  `sudo systemctl edit cloudflare-update-ips.service` to apply them.
+
 ### Customising the sandbox
 
 Prefer a drop-in to editing `/etc/systemd/system/bun-app.service`. The
@@ -605,8 +656,10 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   `Cache-Control` on `/assets/`, a `Connection: upgrade` header sent only
   for upgrade requests, the root-only `/etc/bun-app.env`, the non-root `bun-app` service user, read-only
   code / writable state dir, Bun listening on `127.0.0.1:3000` only, port
-  22 limited when no sshd is installed, `certbot` availability, and the
-  pinned Bun version with its embedded checksum and `bunx` link.
+  22 limited when no sshd is installed, `certbot` availability, the
+  pinned Bun version with its embedded checksum and `bunx` link, the
+  unit's stop timeout and file limit, and `systemd-analyze verify` on
+  both units.
 - `test_bun_pin.sh` — rejects `BUN_VERSION=yes`; a tampered zip on a
   `file://` mirror fails with nothing in `/usr/local/bin`; a bad
   `SHASUMS256.txt` for `BUN_VERSION=1.4.3` fails and leaves the installed
@@ -664,7 +717,9 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   leave the lists and Nginx unchanged; a good list applies, a repeat run
   reports `unchanged`, the access log shows the `CF-Connecting-IP` address,
   and the `cloudflare-only.conf` include answers 200 from an edge and 403
-  otherwise. A re-run on a host whose site still includes the old
+  otherwise. Through `systemctl start`, inside the unit's sandbox, a
+  changed list applies and reloads Nginx, and a list `nginx -t` refuses
+  fails the unit with the lists unchanged. A re-run on a host whose site still includes the old
   `cloudflare-ip-filter.conf` does not enable real client IP.
 
 You can override the test image name with the `BUN_INSTALLER_TEST_IMAGE`
@@ -815,6 +870,11 @@ sudo bash install.sh BUN_VERSION=latest
   CapabilityBoundingSet=
   SystemCallArchitectures=native
   # No MemoryDenyWriteExecute: Bun's JIT needs writable+executable memory.
+
+  # Limits. Override with `systemctl edit bun-app`, e.g. MemoryMax=512M
+  TimeoutStopSec=30
+  LimitNOFILE=65536
+  #MemoryMax=
 
   [Install]
   WantedBy=multi-user.target

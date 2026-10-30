@@ -89,6 +89,12 @@ ufw status | grep -qE '^22/tcp +LIMIT'
 echo -ne "${YELLOW}[test]${NC} "
 systemd-analyze security bun-app --no-pager | tail -1
 
+# Stop timeout and file limit (0018); both units pass verify
+assert_equals "bun-app TimeoutStopUSec" 30s "$(systemctl show -p TimeoutStopUSec --value bun-app)"
+assert_equals "bun-app LimitNOFILE" 65536 "$(systemctl show -p LimitNOFILE --value bun-app)"
+systemd-analyze verify /etc/systemd/system/bun-app.service \
+  /etc/systemd/system/cloudflare-update-ips.service
+
 # ensure certbot is accessible
 command -v certbot >/dev/null
 

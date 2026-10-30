@@ -209,6 +209,9 @@ rewritten in `/etc/environment` → MOTD → summary.
   `/srv/app/data`) and `CacheDirectory=bun-app`.
 - Never add `MemoryDenyWriteExecute`: Bun's JIT needs W+X memory and the
   unit crash-loops.
+- Limits block: `TimeoutStopSec=30`, `LimitNOFILE=65536`, commented
+  `#MemoryMax=` (set in a drop-in). README "Limits" lists them. Kept units
+  on existing hosts never get them (README says to use a drop-in).
 - `install_bun` probes `/usr/local/bin/bun` as `nobody`
   (`runuser -u nobody`); a Bun that fails the probe (a legacy symlink into
   `/root/.bun`) is replaced like one of another version.
@@ -281,6 +284,15 @@ rewritten in `/etc/environment` → MOTD → summary.
   `/usr/local/sbin/cloudflare-update-ips`, run daily by
   `cloudflare-update-ips.{service,timer}` (`RandomizedDelaySec=1h`,
   `Persistent=true`).
+- The service stays root (the reload goes over D-Bus to systemd) but is
+  sandboxed: `ProtectSystem=strict` with `ReadWritePaths=/etc/nginx/cloudflare
+  /run/lock /var/log/nginx`, `ProtectHome`, kernel/namespace protections,
+  `MemoryDenyWriteExecute`, `SystemCallFilter=@system-service`,
+  `CapabilityBoundingSet=CAP_DAC_OVERRIDE` (`nginx -t` opens the
+  `www-data`-owned logs for writing; an empty set fails it). README
+  "Cloudflare updater sandbox" lists every directive; keep them in sync.
+  Exposure 9.0 → 2.2 on 22.04. Gotcha: `/root` and `/home` are hidden, so a
+  `CLOUDFLARE_IPS_SOURCE` there works from a shell but not under the unit.
 - It writes the **generated** `/etc/nginx/cloudflare/real-ip.conf`
   (`set_real_ip_from` + `real_ip_header CF-Connecting-IP`) and
   `edge-ips.conf` (`<cidr> 1;`). Never `keep_existing`; the installer runs
@@ -367,7 +379,8 @@ Re-running must be safe and never clobber user edits:
   `bun-app`, code read-only, state dir writable, Bun only
   on `127.0.0.1:3000`, `22/tcp` limited without sshd, pinned Bun version
   with `Checksum OK: ... (embedded)`, `bunx` → `bun`,
-  `application_version`),
+  `application_version`, `TimeoutStopUSec=30s`, `LimitNOFILE=65536`,
+  `systemd-analyze verify` on both units),
   `test_bun_pin` (re-runs use `SKIP_UPGRADE=1 SKIP_CERTBOT=1`;
   `BUN_VERSION=yes` writes nothing; a `file:///root/bun-mirror` zip with
   one appended byte fails with no `/usr/local/bin/bun` and no `.bun.*`
@@ -418,7 +431,11 @@ Re-running must be safe and never clobber user edits:
   line, short list, empty family and an `nginx -t` failure all exit
   non-zero with the lists byte-identical; good stub applies, repeat says
   `unchanged`; access log shows `CF-Connecting-IP`; the include gives 200
-  from an edge, 403 otherwise; re-run under an active old filter skips
+  from an edge, 403 otherwise; through `systemctl start` with a drop-in
+  `Environment=CLOUDFLARE_IPS_SOURCE=/srv/cf-stub` (not `/root`:
+  `ProtectHome`), a changed list applies and logs `Nginx reloaded`, an
+  `nginx -t` failure fails the unit with the lists byte-identical; the
+  drop-in is removed after; re-run under an active old filter skips
   `conf.d`).
 - Gotcha: files a test writes under `/tmp` during an install were gone by
   assert time; `test_piped_install` keeps its files under `/root`.

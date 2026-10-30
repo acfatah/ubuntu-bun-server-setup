@@ -7,5 +7,30 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/cloudflare-update-ips
+
+# Sandboxing. Score with: systemd-analyze security cloudflare-update-ips
+# Stays root: the Nginx reload goes through systemd, which wants uid 0.
 NoNewPrivileges=yes
+ProtectSystem=strict
+# Lists, its lock, and the logs nginx -t opens for writing
+ReadWritePaths=/etc/nginx/cloudflare /run/lock /var/log/nginx
+ProtectHome=yes
 PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# nginx -t opens /var/log/nginx/*.log (www-data or adm) for writing
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

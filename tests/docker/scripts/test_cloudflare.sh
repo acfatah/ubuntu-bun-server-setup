@@ -117,6 +117,45 @@ systemctl is-active --quiet nginx
 echo -e "${YELLOW}[test]${NC} real client IP from CF-Connecting-IP"
 eventually logged_as_client
 
+# The same paths through systemd, inside the unit's sandbox (0018). /root
+# is hidden there, so this stub lives under /srv.
+echo -e "${YELLOW}[test]${NC} updater under its systemd sandbox"
+UNIT_STUB=/srv/cf-stub
+DROPIN=/etc/systemd/system/cloudflare-update-ips.service.d/test-stub.conf
+mkdir -p "$UNIT_STUB" "${DROPIN%/*}"
+printf '[Service]\nEnvironment=CLOUDFLARE_IPS_SOURCE=%s\n' "$UNIT_STUB" >"$DROPIN"
+systemctl daemon-reload
+# True when a unit run started at or after $1 logged a line matching $2
+unit_logged() {
+  grep -q "$2" <<<"$(journalctl -u cloudflare-update-ips --since "$1" --no-pager -o cat)"
+}
+
+# A changed list applies and reloads Nginx
+printf '%s' "${V4_GOOD}162.158.0.0/15"$'\n' >"$UNIT_STUB/ips-v4"
+printf '%s' "$V6_GOOD" >"$UNIT_STUB/ips-v6"
+since=$(date '+%Y-%m-%d %H:%M:%S')
+systemctl start cloudflare-update-ips.service
+assert_file_contains /etc/nginx/cloudflare/real-ip.conf "^set_real_ip_from 162.158.0.0/15;$"
+eventually unit_logged "$since" "Nginx reloaded"
+
+# nginx -t refuses the list: the unit fails and the old files come back
+printf '%s' "${V4_GOOD}999.0.0.0/8"$'\n' >"$UNIT_STUB/ips-v4"
+before=$(sha256sum "${LISTS[@]}")
+since=$(date '+%Y-%m-%d %H:%M:%S')
+if systemctl start cloudflare-update-ips.service; then
+  echo "${RED}Assertion failed:${NC} unit accepted a list nginx -t refuses" >&2
+  exit 1
+fi
+assert_equals "lists after a failed unit run" "$before" "$(sha256sum "${LISTS[@]}")"
+eventually unit_logged "$since" "previous files restored"
+systemctl is-active --quiet nginx
+
+rm -rf "${DROPIN%/*}" "$UNIT_STUB"
+systemctl daemon-reload
+systemctl reset-failed cloudflare-update-ips.service
+echo -ne "${YELLOW}[test]${NC} "
+systemd-analyze security cloudflare-update-ips --no-pager | tail -1
+
 # Blocking: on with the include; edge passes, anything else gets 403
 echo -e "${YELLOW}[test]${NC} cloudflare-only include"
 sed -i 's|^  #include snippets/cloudflare-only.conf;|  include snippets/cloudflare-only.conf;|' "$SITE"
