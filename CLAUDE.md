@@ -75,7 +75,8 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
   `TEMPLATE_SHA256` is set and `TEMPLATE_REF == INSTALLER_REF` (also via
   a `TEMPLATE_BASE_URL` mirror); another ref prints one warning and
   skips it. Local templates are never verified.
-- `--version`/`-V` and `--help`/`-h` exit 0 before the root check;
+- `--version`/`-V` and `--help`/`-h` exit 0 before the root check
+  (`--check`/`-c` too, with 0 or 1; see Health checks);
   `print_version` prints a second `templates:` line: `verified against
   embedded SHA-256 sums`, `not verified (TEMPLATE_REF differs from
   INSTALLER_REF)` or `not verified (dev channel)`, then a `bun:` line
@@ -151,8 +152,8 @@ Top level: `parse_args` → root check → `take_lock` → `start_log` → `main
 2>&1 | tee -a /var/log/bun-installer.log` (`pipefail` carries `main`'s
 status). `take_lock` holds `flock -n` on fd 9 of `LOCK_FILE`
 (`/run/lock/bun-installer.lock`) for the whole run (`main` and `tee`
-inherit it); a second run exits 1 before the log header. `--help` and
-`--version` exit in `parse_args`, so they take no lock. It runs
+inherit it); a second run exits 1 before the log header. `--help`,
+`--version` and `--check` exit in `parse_args`, so they take no lock. It runs
 only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
 `BASH_SOURCE`), false when sourced, so unit tests can source the script.
 Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
@@ -165,7 +166,33 @@ colours) and `set -Eeuo pipefail`.
 in `configure_nginx`, so its `nginx -t` sees the old site) → Nginx config →
 `nginx -t` → restart → systemd unit +
 `/etc/bun-app.env` + `/srv/app/data` symlink → `APP_INFO_FILE` (`/var/lib/app-info/application.info`) → `INSTANCE_ID` line
-rewritten in `/etc/environment` → MOTD → summary.
+rewritten in `/etc/environment` → MOTD → `write_logrotate`
+(`templates/logrotate-bun-installer` → `/etc/logrotate.d/bun-installer`,
+kept; `logrotate` is in `BASE_PACKAGES`, missing from the test image) →
+summary.
+
+### Health checks (`health_problems`, `--check`)
+
+- `health_problems <app> <certbot>` (each `1` or `0`) fills the globals
+  `PROBLEMS` (messages) and `CHECKS` (what ran): `certbot_runs` when
+  certbot is 1 (`certbot --version` as root via `is_root`; otherwise
+  `[[ -x $CERTBOT_BIN ]]`, since the snap fails for a user with no
+  writable home, e.g. `nobody` in `test_default`); `nginx` active; with app 1, `bun-app` active and, only
+  when `NGINX_SITE` has a `location = /healthz` line (kept older sites
+  lack it), `healthz_ok`: `curl -fsS --max-time 5 --retry 5
+  --retry-connrefused --retry-delay 1 $HEALTHZ_URL` must print `ok`. The
+  retry covers the restart `create_systemd_service` just did; with
+  `bun-app` down Nginx answers 502 and the probe takes ~5 s to fail.
+- `print_summary` calls it with this run's toggles (`skip_app`,
+  `skip_certbot`).
+- `-c`/`--check` in `parse_args` runs `run_check` and exits 0 or 1 (2 is
+  reserved for 0013's drift report, which will extend the same flag).
+  Before the root check: no lock, log, writes or downloads. `run_check`
+  infers instead of reading toggles: no `APP_INFO_FILE` → `No installation
+  found` (1); app when `BUN_APP_UNIT` exists; certbot when `snap list
+  certbot` succeeds or `CERTBOT_BIN` exists or is a (dangling) link.
+- `NGINX_SITE`, `BUN_APP_UNIT`, `CERTBOT_BIN` and `HEALTHZ_URL` are
+  top-level globals so unit tests can point them at the tmpdir.
 
 ### Failure handling
 
@@ -188,8 +215,9 @@ rewritten in `/etc/environment` → MOTD → summary.
   reason plus the two ways out (fix snapd, or `SKIP_CERTBOT=1`), `exit 1`.
   An `exit` trips no ERR trap, so no `install failed` line. No apt
   `certbot` fallback, by decision: Certbot's docs recommend the snap.
-- `print_summary` checks `certbot --version` (unless `SKIP_CERTBOT=1`),
-  `nginx` and (unless skipped) `bun-app` are active; it lists problems and returns 1, which `main`
+- `print_summary` runs `health_problems` (see Health checks): Certbot
+  (unless `SKIP_CERTBOT=1`), `nginx`, and (unless skipped) `bun-app` and
+  the `/healthz` probe; it lists problems and returns 1, which `main`
   turns into `exit 1` without tripping the trap.
 - Colours are empty unless stdout is a TTY (decided before the pipe).
 - A run refused by `take_lock` changes nothing, not even the log.
@@ -263,6 +291,8 @@ rewritten in `/etc/environment` → MOTD → summary.
   only Nginx reaches it.
 
 - `/` serves static files, falls back to `@bun` → `127.0.0.1:3000`.
+- `location = /healthz` (`access_log off`) proxies to Bun, which answers
+  `ok` (`text/plain`, `Cache-Control: no-store`) before its other routes.
 - `/api/` and `@bun` both `include snippets/bun-proxy.conf`
   (`templates/nginx-bun-proxy.conf`): `proxy_pass` has no URI, so the
   `/api` prefix is **kept**. Port 3000 is hardcoded there; it must match
@@ -311,7 +341,14 @@ rewritten in `/etc/environment` → MOTD → summary.
   `real-ip.conf`; `geo $realip_remote_addr $bun_cloudflare_edge` includes
   `edge-ips.conf`) and `snippets/cloudflare-only.conf`
   (`templates/nginx-cloudflare-only.conf`: 403 when
-  `$bun_cloudflare_edge = 0`).
+  `$bun_cloudflare_deny`).
+- `$bun_cloudflare_deny` is a `map` in `bun-cloudflare.conf` on
+  `"$bun_cloudflare_edge:$realip_remote_addr:$uri"`: `~^0:` → 1, except
+  the exact keys `0:127.0.0.1:/healthz` and `0:::1:/healthz` → 0 (exact
+  keys beat regexes). The snippet's server-level `if` runs before location
+  matching, so a location alone cannot exempt `/healthz`. Loopback only,
+  by decision: an open `/healthz` would bypass Cloudflare's WAF. Both
+  files are kept, so older hosts keep the matching old pair.
 - The geo keys on `$realip_remote_addr` (the peer before the real-IP swap);
   `$remote_addr` would be the visitor.
 - `old_cloudflare_filter_active`: while any Nginx config includes the old
@@ -327,7 +364,7 @@ Re-running must be safe and never clobber user edits:
 - `keep_existing <path>` prints `Kept existing <path>` and skips the write.
   Used for `bun-app.service`, `/etc/bun-app.env`, the Nginx proxy snippet
   and map file, skip-mode `index.html`, the Cloudflare updater, units,
-  `conf.d` file and snippet, and `00-custom` MOTD. Sample app skipped if
+  `conf.d` file and snippet, `00-custom` MOTD and the logrotate rule. Sample app skipped if
   `/srv/app/server.ts` exists.
 - The Nginx default site is kept only if it carries the marker
   `# Managed by ubuntu-bun-server-setup.` (line 1 of
@@ -380,7 +417,10 @@ Re-running must be safe and never clobber user edits:
   on `127.0.0.1:3000`, `22/tcp` limited without sshd, pinned Bun version
   with `Checksum OK: ... (embedded)`, `bunx` → `bun`,
   `application_version`, `TimeoutStopUSec=30s`, `LimitNOFILE=65536`,
-  `systemd-analyze verify` on both units),
+  `systemd-analyze verify` on both units; `/healthz` → `ok` with
+  `no-store` and no access-log line, `--check` passes as `nobody`,
+  `logrotate -d` passes, `systemctl stop bun-app` → `--check` exits 1
+  naming `bun-app` and the probe, then restarts it),
   `test_bun_pin` (re-runs use `SKIP_UPGRADE=1 SKIP_CERTBOT=1`;
   `BUN_VERSION=yes` writes nothing; a `file:///root/bun-mirror` zip with
   one appended byte fails with no `/usr/local/bin/bun` and no `.bun.*`
@@ -393,13 +433,14 @@ Re-running must be safe and never clobber user edits:
   `bun-app` user, stock site kept, no snippet or map file, Cloudflare
   `conf.d` present and real-IP-only note; first run with `SKIP_UFW=1`:
   UFW inactive, no rules added, `ufw="skipped"`; and `SKIP_CERTBOT=1`:
-  no snapd package, no `certbot`, skip note; re-run keeps a custom
-  `index.html`, enables UFW, `ufw="enabled"`, and `certbot --version`
-  works),
+  no snapd package, no `certbot`, skip note, `--check` OK naming none of
+  `bun-app`, `healthz`, `Certbot`; re-run keeps a custom
+  `index.html`, enables UFW, `ufw="enabled"`, `certbot --version`
+  works and `--check` lists `Certbot runs`),
   `test_idempotent` (`SKIP_BUN_APP=yes` rejected, `=0` installs, a run
   while the test shell holds the lock exits 1 with the log and
   `/etc/environment` unchanged, edits survive a re-run (unit, env file, site, snippet, map, Cloudflare updater,
-  units, `conf.d` file and snippet, MOTD), one stable `INSTANCE_ID` in `/etc/environment`, the env file and
+  units, `conf.d` file and snippet, MOTD, logrotate rule), one stable `INSTANCE_ID` in `/etc/environment`, the env file and
   the process, MOTD diversions survive a
   `base-files` reinstall), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
   <install.sh` with `TEMPLATE_BASE_URL=file:///workspace/templates`;
@@ -431,7 +472,9 @@ Re-running must be safe and never clobber user edits:
   line, short list, empty family and an `nginx -t` failure all exit
   non-zero with the lists byte-identical; good stub applies, repeat says
   `unchanged`; access log shows `CF-Connecting-IP`; the include gives 200
-  from an edge, 403 otherwise; through `systemctl start` with a drop-in
+  from an edge, 403 otherwise; off the edge list, `/healthz` from
+  `127.0.0.1` (and `[::1]` when `lo` has it) → 200, from the container's
+  own IP → 403, `/healthz/x` → 403; through `systemctl start` with a drop-in
   `Environment=CLOUDFLARE_IPS_SOURCE=/srv/cf-stub` (not `/root`:
   `ProtectHome`), a changed list applies and logs `Nginx reloaded`, an
   `nginx -t` failure fails the unit with the lists byte-identical; the
@@ -477,7 +520,14 @@ Re-running must be safe and never clobber user edits:
   `take_lock` free and held (`LOCK_FILE` in `$BATS_TEST_TMPDIR`),
   `previous_ufw_state` and each `configure_ufw` decision (`ufw` and
   `ssh_ports` stubbed as functions, `APP_INFO_FILE` in the tmpdir);
-  sourcing runs nothing, executed and piped runs still do.
+  `health_problems` (`systemctl`, `curl`, `certbot`, `snap`, `is_root`
+  stubbed by `stub_health`, root unless `AS_ROOT=0`; `NGINX_SITE` in the
+  tmpdir: healthy, one problem per failure, non-root Certbot by link,
+  probe flags, both flags off, no `/healthz` location → no probe), `run_check` (no info file, no unit and no certbot → Nginx only,
+  unit plus dangling `CERTBOT_BIN` link → problem), `parse_args --check`
+  exit codes with `LOCK_FILE` untouched, and an executed `--check` never
+  reaching the root check; sourcing runs nothing, executed and piped runs
+  still do.
 - `release.bats`: `increment_version`, `version_gt`, `validate_version`
   (leading zeros refused) and `build-installer.sh`'s version check.
 - `motd.bats`: copies `templates/motd.sh`, substitutes `__NGINX_ROOT__`

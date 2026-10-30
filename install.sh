@@ -33,6 +33,8 @@ set -Eeuo pipefail
 #   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1] [BUN_VERSION=X.Y.Z|latest]
 #   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1] [BUN_VERSION=X.Y.Z|latest]
 #   bash install.sh --version | --help
+#   bash install.sh --check -> health of an installed host, no root needed:
+#                              exit 0 healthy, 1 problems (2 reserved)
 # ==============================================================================
 
 # Release builds: build-installer.sh rewrites these three lines, pinning
@@ -55,10 +57,14 @@ LOG_FILE=/var/log/bun-installer.log
 LOCK_FILE=/run/lock/bun-installer.lock
 OS_RELEASE=/etc/os-release
 APP_INFO_FILE=/var/lib/app-info/application.info
+NGINX_SITE=/etc/nginx/sites-available/default
+BUN_APP_UNIT=/etc/systemd/system/bun-app.service
+CERTBOT_BIN=/usr/bin/certbot
+HEALTHZ_URL=http://127.0.0.1/healthz
 # What configure_ufw did this run; recorded as ufw= in APP_INFO_FILE
 UFW_STATE=""
-USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1] [BUN_VERSION=X.Y.Z|latest]"
-BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw)
+USAGE="Usage: install.sh [--version | --help | --check] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1] [BUN_VERSION=X.Y.Z|latest]"
+BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw logrotate)
 # apt-get update attempts and the pause between them, in seconds
 APT_UPDATE_TRIES=3
 APT_UPDATE_DELAY=10
@@ -175,6 +181,8 @@ app. Run as root.
 Options:
   -V, --version      print the version, template source and Bun target, then exit
   -h, --help         print this help, then exit
+  -c, --check        check an installed host's health (no root needed), then
+                     exit: 0 healthy, 1 problems (2 is reserved)
 
 Toggles (KEY=VALUE argument or env var; only 1 enables):
   SKIP_BUN_APP=1     skip the sample app, its user and its unit
@@ -316,6 +324,11 @@ parse_args() {
       -h | --help)
         print_help
         exit 0
+        ;;
+      -c | --check)
+        # 0 healthy, 1 problems; 2 is reserved for a drift report
+        run_check && exit 0
+        exit 1
         ;;
       SKIP_BUN_APP=*)
         SKIP_BUN_APP="${arg#*=}"
@@ -787,7 +800,7 @@ write_default_nginx_index() {
 # A site carrying the installer marker (line 1 of the template) is kept;
 # any other, such as Ubuntu's stock site, is replaced.
 write_bun_nginx_config() {
-  local site=/etc/nginx/sites-available/default
+  local site=$NGINX_SITE
   local marker="# Managed by ubuntu-bun-server-setup."
 
   if [[ -f $site ]] && grep -qF "$marker" "$site"; then
@@ -895,7 +908,7 @@ write_app_env() {
 # exist, then enables the unit and (re)starts it if /srv/app exists.
 # Skipped with SKIP_BUN_APP=1.
 create_systemd_service() {
-  local unit=/etc/systemd/system/bun-app.service
+  local unit=$BUN_APP_UNIT
   skip_app && return
 
   echo -e "${GREEN}Configuring systemd service bun-app...${NC}"
@@ -1001,43 +1014,135 @@ write_motd() {
   chmod +x "$motd"
 }
 
-# Prints a summary of installed components and next steps. Checks that
-# certbot runs (unless skipped) and nginx (and bun-app unless skipped) are
-# active; lists anything missing and returns 1 if so.
+# Installs the installer log's logrotate rule, unless one exists.
+write_logrotate() {
+  deploy_templates logrotate-bun-installer:/etc/logrotate.d/bun-installer
+}
+
+# True when the app answers "ok" on /healthz through Nginx. Retries for a
+# few seconds: bun-app may have just been restarted.
+healthz_ok() {
+  local body
+  body=$(curl -fsS --max-time 5 --retry 5 --retry-connrefused --retry-delay 1 \
+    "$HEALTHZ_URL" 2>/dev/null) || return 1
+  [[ $body == ok ]]
+}
+
+# True when running as root.
+is_root() {
+  [[ $(id -u) -eq 0 ]]
+}
+
+# True when Certbot can run. As root, certbot --version, which also
+# catches a dangling /usr/bin/certbot link. Other users (--check from a
+# monitor) only check the link resolves to an executable: the snap fails
+# for a user without a writable home dir, such as nobody.
+certbot_runs() {
+  if ! is_root; then
+    [[ -x $CERTBOT_BIN ]]
+    return
+  fi
+  certbot --version >/dev/null 2>&1
+}
+
+# Health checks shared by the summary and --check. $1 is 1 when the app
+# was installed (bun-app active, and the /healthz probe when the site has
+# that location), $2 is 1 when Certbot should run. Fills PROBLEMS with
+# what failed and CHECKS with what was checked.
+PROBLEMS=()
+CHECKS=()
+health_problems() {
+  local app=$1 certbot=$2
+  PROBLEMS=()
+  CHECKS=()
+
+  if [[ $certbot == 1 ]]; then
+    CHECKS+=("Certbot runs")
+    if ! certbot_runs; then
+      PROBLEMS+=("Certbot does not run; see: snap list certbot")
+    fi
+  fi
+  CHECKS+=("Nginx is active")
+  if ! systemctl is-active --quiet nginx; then
+    PROBLEMS+=("Nginx is not active; see: systemctl status nginx")
+  fi
+  if [[ $app == 1 ]]; then
+    CHECKS+=("Service 'bun-app' is active")
+    if ! systemctl is-active --quiet bun-app; then
+      PROBLEMS+=("Service 'bun-app' is not active; see: journalctl -u bun-app")
+    fi
+    # Sites from before /healthz existed are kept on re-run; skip those
+    if grep -qsE '^[[:space:]]*location = /healthz' "$NGINX_SITE"; then
+      CHECKS+=("${HEALTHZ_URL} answers ok")
+      if ! healthz_ok; then
+        PROBLEMS+=("Health probe failed; see: curl -i ${HEALTHZ_URL}")
+      fi
+    fi
+  fi
+}
+
+# --check: re-runs the summary's checks on an installed host and prints
+# the result; returns 1 on any problem. Infers what was installed (the
+# bun-app unit, a Certbot snap or link) instead of reading toggles. No
+# root, lock, log, writes or downloads.
+run_check() {
+  local app=0 certbot=0 line
+
+  if [[ ! -f $APP_INFO_FILE ]]; then
+    PROBLEMS=("No installation found ($APP_INFO_FILE is missing)")
+  else
+    if [[ -e $BUN_APP_UNIT ]]; then
+      app=1
+    fi
+    # A dangling link counts: health_problems reports it
+    if snap list certbot >/dev/null 2>&1 || [[ -e $CERTBOT_BIN || -L $CERTBOT_BIN ]]; then
+      certbot=1
+    fi
+    health_problems "$app" "$certbot"
+  fi
+
+  if [[ ${#PROBLEMS[@]} -gt 0 ]]; then
+    echo -e "${RED}Health check: problems found${NC}"
+    for line in "${PROBLEMS[@]}"; do
+      echo " * $line"
+    done
+    return 1
+  fi
+  echo -e "${GREEN}Health check: OK${NC}"
+  for line in "${CHECKS[@]}"; do
+    echo " * $line"
+  done
+}
+
+# Prints a summary of installed components and next steps, after the
+# health checks for this run's toggles; lists any problem and returns 1.
 print_summary() {
-  local bun_path bun_ver nginx_ver service_line problem reboot_line=""
+  local bun_path bun_ver nginx_ver service_line="" problem reboot_line=""
+  local app=1 certbot=1
   local certbot_lines=" * Certbot installed. To obtain a certificate for an Nginx site:
    certbot --nginx"
-  local problems=()
 
   bun_path=$(command -v bun || echo "not found")
   bun_ver=$(bun --version 2>/dev/null || echo "unknown")
   nginx_ver=$(nginx -v 2>&1 || echo "not found")
-  service_line=""
 
   if skip_certbot; then
+    certbot=0
     certbot_lines=" * Certbot skipped (SKIP_CERTBOT=1): install an ACME client to get certificates."
-  # --version catches a dangling /usr/bin/certbot symlink
-  elif ! certbot --version >/dev/null 2>&1; then
-    problems+=("Certbot does not run; see: snap list certbot")
   fi
-  if ! systemctl is-active --quiet nginx; then
-    problems+=("Nginx is not active; see: systemctl status nginx")
+  if skip_app; then
+    app=0
+  else
+    service_line=" * Service 'bun-app' is active. View logs: journalctl -u bun-app -f"
   fi
   if [[ -e /var/run/reboot-required ]]; then
     reboot_line=" * Reboot required to finish package upgrades: sudo reboot"
   fi
-  if ! skip_app; then
-    if systemctl is-active --quiet bun-app; then
-      service_line=" * Service 'bun-app' is active. View logs: journalctl -u bun-app -f"
-    else
-      problems+=("Service 'bun-app' is not active; see: journalctl -u bun-app")
-    fi
-  fi
 
-  if [[ ${#problems[@]} -gt 0 ]]; then
+  health_problems "$app" "$certbot"
+  if [[ ${#PROBLEMS[@]} -gt 0 ]]; then
     echo -e "${RED}Installation finished with problems:${NC}"
-    for problem in "${problems[@]}"; do
+    for problem in "${PROBLEMS[@]}"; do
       echo " * $problem"
     done
     echo " * Log: $LOG_FILE"
@@ -1107,6 +1212,7 @@ main() {
   write_application_info
   write_instance_id
   write_motd
+  write_logrotate
   # A conditional, so the ERR trap stays quiet; the summary explains
   print_summary || exit 1
 }

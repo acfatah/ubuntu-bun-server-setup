@@ -128,8 +128,74 @@ When done:
 
 If a step fails, the installer stops, exits non-zero and prints
 `install failed at line N (<step>)`. If it completes but something is not
-running (Certbot unless skipped, Nginx, `bun-app`), the summary lists it and the exit
-status is non-zero.
+running (Certbot unless skipped, Nginx, `bun-app`, the `/healthz` probe),
+the summary lists it and the exit status is non-zero.
+
+### Health check
+
+**Endpoint.** The sample app answers `GET /healthz` with `200 ok`
+(`text/plain`, `Cache-Control: no-store`). The Nginx site proxies it to Bun
+without writing an access-log line, so a monitor polling every few seconds
+does not flood the log.
+
+- **Gotcha: your own app must answer `/healthz` too.** Otherwise
+  `--check` below reports the probe as failed, and so does the summary of
+  a re-run, which then exits non-zero. Return `200` with the body `ok`.
+- **Monitor through the public hostname,** e.g.
+  `https://example.com/healthz`. That checks DNS, TLS, Cloudflare (if used),
+  Nginx and Bun in one request.
+- **Under [Cloudflare only](#cloudflare-only-off),** `/healthz` is reachable
+  directly from the host itself (`127.0.0.1`, `::1`) only. Any other
+  request that skips Cloudflare still gets 403, so the endpoint opens no
+  path around Cloudflare's DDoS protection and WAF. Point outside monitors
+  at the public hostname.
+
+**`--check`.** Re-runs the summary's checks on an installed host, at any
+time, without root:
+
+```bash
+bash install.sh --check
+curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/download/install.sh | bash -s -- --check
+```
+
+- **Gotcha: older installers lack it.** A release from before `--check`
+  rejects it as an unknown argument (exit 1), which a monitor would read
+  as unhealthy.
+
+- **Checks:** Nginx is active; `bun-app` is active and
+  `http://127.0.0.1/healthz` answers `ok` (when
+  `/etc/systemd/system/bun-app.service` exists, and the site has the
+  `/healthz` location); Certbot runs (when the snap or `/usr/bin/certbot`
+  exists). It infers this from the host, so pass no toggles.
+- **Caveat: Certbot is checked less as non-root.** As root it runs
+  `certbot --version`; any other user only checks that `/usr/bin/certbot`
+  leads to an executable, since the snap fails for users without a
+  writable home dir (such as `nobody`).
+- **Exit status:** `0` healthy, `1` on any problem (each is listed), and
+  `2` is reserved for a future config drift report.
+- **Changes nothing:** no lock, no log entry, no download beyond the
+  script itself, no package or file change.
+- **Gotcha: sites from before `/healthz` skip the probe.** A re-run keeps
+  an existing site (see [Re-running the
+  installer](#re-running-the-installer)), so older hosts have no
+  `location = /healthz`; `--check` then checks only that `bun-app` is
+  active. Copy the location block from `templates/nginx-default.conf` to
+  add it.
+
+**Shipping logs.** `bun-app` logs to the systemd journal; nothing here
+ships it off the host. Some options:
+
+- `journalctl -u bun-app -o json` gives one JSON object per line, ready
+  for any collector.
+- `systemd-journal-upload` (package `systemd-journal-remote`) pushes the
+  journal to a `systemd-journal-remote` server.
+- [Vector](https://vector.dev/docs/reference/configuration/sources/journald/)
+  and [Fluent Bit](https://docs.fluentbit.io/manual/pipeline/inputs/systemd)
+  read the journal directly and forward it anywhere.
+
+**Installer log.** `/etc/logrotate.d/bun-installer` rotates
+`/var/log/bun-installer.log` monthly and keeps six compressed months.
+Re-runs keep an edited copy.
 
 ### Pin and check a version
 
@@ -146,7 +212,8 @@ sudo bash install.sh
 
 `--version` prints the installer version, where its templates come from,
 whether they are verified, and the Bun version it installs; `--help` lists
-the toggles. Neither needs root:
+the toggles. Neither needs root, nor does `--check` (see
+[Health check](#health-check)):
 
 ```bash
 curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/download/install.sh | bash -s -- --version
@@ -243,7 +310,7 @@ installer run is in progress` before it changes anything.
   `/etc/nginx/snippets/cloudflare-only.conf`. The generated lists under
   `/etc/nginx/cloudflare/` belong to the updater; the installer fetches them
   only when missing.
-- `/etc/update-motd.d/00-custom`.
+- `/etc/update-motd.d/00-custom` and `/etc/logrotate.d/bun-installer`.
 - `INSTANCE_ID` in `/etc/environment`: reused, kept to a single line.
 - The sample app, if `/srv/app/server.ts` exists. Hosts installed before
   0.3.0 keep a `server.ts` that listens on all interfaces; add
@@ -321,7 +388,7 @@ step with Cloudflare's published IP ranges:
 | `/usr/local/sbin/cloudflare-update-ips` | Updater script (kept on re-run) |
 | `/etc/systemd/system/cloudflare-update-ips.{service,timer}` | Daily timer (kept on re-run) |
 | `/etc/nginx/cloudflare/real-ip.conf`, `edge-ips.conf` | Generated lists; never edit |
-| `/etc/nginx/conf.d/bun-cloudflare.conf` | Real client IP + `$bun_cloudflare_edge` geo (kept) |
+| `/etc/nginx/conf.d/bun-cloudflare.conf` | Real client IP, `$bun_cloudflare_edge` geo and `$bun_cloudflare_deny` map (kept) |
 | `/etc/nginx/snippets/cloudflare-only.conf` | Optional 403 rule (kept) |
 
 The installer fetches the lists once; if that fetch fails, the install
@@ -351,6 +418,12 @@ connecting address (`$realip_remote_addr`), not the restored client IP.
 - **Gotcha: it locks out direct access.** Requests to the server's IP, from
   the host itself, or from monitors and health checks that skip Cloudflare
   all get 403. Make sure the DNS records are proxied (orange cloud) first.
+  The one exception is `/healthz` from the host itself, so
+  `install.sh --check` keeps working; see [Health check](#health-check).
+- The decision comes from the `$bun_cloudflare_deny` map in
+  `bun-cloudflare.conf`. Hosts installed before it keep the older snippet
+  (`if ($bun_cloudflare_edge = 0)`), which blocks `/healthz` too; delete
+  both files and re-run to get the pair.
 - In skip mode, Ubuntu's stock site has no such line; add it yourself to
   any server block.
 
@@ -447,6 +520,7 @@ Code and state are kept apart:
 | Code, node_modules | `/srv/app`                            | root    | read-only      |
 | DB, uploads, state | `/var/lib/bun-app` (= `/srv/app/data`) | bun-app | read-write     |
 | Cache              | `/var/cache/bun-app`                  | bun-app | read-write     |
+| Installer log      | `/var/log/bun-installer.log` (rotated by `/etc/logrotate.d/bun-installer`) | root:adm | none |
 
 - `/var/lib/bun-app` and `/var/cache/bun-app` are created and owned by
   systemd (`StateDirectory=`, `CacheDirectory=`). The state dir is mode
@@ -658,8 +732,10 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   code / writable state dir, Bun listening on `127.0.0.1:3000` only, port
   22 limited when no sshd is installed, `certbot` availability, the
   pinned Bun version with its embedded checksum and `bunx` link, the
-  unit's stop timeout and file limit, and `systemd-analyze verify` on
-  both units.
+  unit's stop timeout and file limit, `systemd-analyze verify` on
+  both units, `/healthz` (`ok`, no access-log line), `--check` passing as
+  `nobody`, `logrotate -d` on the rule, and `--check` failing with
+  `bun-app` stopped, naming the service and the probe.
 - `test_bun_pin.sh` — rejects `BUN_VERSION=yes`; a tampered zip on a
   `file://` mirror fails with nothing in `/usr/local/bin`; a bad
   `SHASUMS256.txt` for `BUN_VERSION=1.4.3` fails and leaves the installed
@@ -671,15 +747,17 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   content, that the stock Nginx site is kept and no proxy snippet or map
   file is installed, that the Cloudflare real-IP config is installed with
   the stock site untouched, that `SKIP_UFW=1` leaves UFW inactive with
-  no rules, and that `SKIP_CERTBOT=1` installs neither snapd nor Certbot.
+  no rules, that `SKIP_CERTBOT=1` installs neither snapd nor Certbot, and
+  that `--check` passes checking neither `bun-app`, the probe nor Certbot.
   A re-run without either toggle keeps a custom `index.html`, enables UFW
-  and installs Certbot.
+  and installs Certbot, which `--check` then checks.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
   `SKIP_BUN_APP=0`, edits installed files, checks a run is refused and
   changes nothing while the lock is held, re-runs, and checks the edits
   survive, `INSTANCE_ID` stays a single stable line (also in
   `/etc/bun-app.env` and the process environment), and the MOTD
-  diversions outlast a `base-files` reinstall.
+  diversions outlast a `base-files` reinstall. The edited files include the
+  logrotate rule.
 - `test_piped_install.sh` — pipes the installer into `bash -s --
   SKIP_BUN_APP=1` the way the Quick Start does, with
   `TEMPLATE_BASE_URL=file:///workspace/templates` so the branch's templates
@@ -717,7 +795,8 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   leave the lists and Nginx unchanged; a good list applies, a repeat run
   reports `unchanged`, the access log shows the `CF-Connecting-IP` address,
   and the `cloudflare-only.conf` include answers 200 from an edge and 403
-  otherwise. Through `systemctl start`, inside the unit's sandbox, a
+  otherwise, except `/healthz` from `127.0.0.1` (and `::1` when present),
+  which still gets 200; from the container's own address it gets 403. Through `systemctl start`, inside the unit's sandbox, a
   changed list applies and reloads Nginx, and a list `nginx -t` refuses
   fails the unit with the lists unchanged. A re-run on a host whose site still includes the old
   `cloudflare-ip-filter.conf` does not enable real client IP.

@@ -18,6 +18,7 @@ edited_files=(
   /etc/nginx/conf.d/bun-cloudflare.conf
   /etc/nginx/snippets/cloudflare-only.conf
   /etc/update-motd.d/00-custom
+  /etc/logrotate.d/bun-installer
 )
 
 # Only 1 skips; anything but empty/0/false/1 is rejected before any work

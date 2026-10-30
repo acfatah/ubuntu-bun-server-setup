@@ -119,3 +119,28 @@ wait "$probe_pid" || true # killed on purpose: non-zero status expected
 systemctl start bun-app
 assert_equals "Connection without upgrade" close "$plain"
 assert_equals "Connection with upgrade" upgrade "$upgrade"
+
+# /healthz through Nginx, left out of the access log (0019)
+echo -e "${YELLOW}[test]${NC} /healthz, --check and log rotation"
+log_lines=$(wc -l </var/log/nginx/access.log)
+# -i: headers, a blank line, then the body (the last line)
+health=$(curl --retry 5 --retry-all-errors --retry-delay 1 -fsSi http://127.0.0.1/healthz)
+assert_equals "/healthz body" ok "${health##*$'\n'}"
+grep -qi '^Cache-Control: no-store' <<<"$health"
+assert_equals "access log lines after /healthz" "$log_lines" "$(wc -l </var/log/nginx/access.log)"
+
+# --check needs no root and passes on a healthy host
+runuser -u nobody -- bash "$INSTALLER" --check
+logrotate -d /etc/logrotate.d/bun-installer
+
+# bun-app down: --check fails and names the service and the probe
+systemctl stop bun-app
+if check_out=$(bash "$INSTALLER" --check); then
+  echo "${RED}Assertion failed:${NC} --check passed with bun-app stopped" >&2
+  exit 1
+fi
+echo "$check_out"
+grep -q "Service 'bun-app' is not active" <<<"$check_out"
+grep -q "Health probe failed" <<<"$check_out"
+systemctl start bun-app
+curl --retry 5 --retry-all-errors --retry-delay 1 -fsS http://127.0.0.1/healthz >/dev/null

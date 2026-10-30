@@ -53,9 +53,10 @@ logged_as_client() {
   tail -n 1 /var/log/nginx/access.log | grep -q '^203\.0\.113\.9 .*real-ip-probe'
 }
 
-# True when a request from 127.0.0.1 gets the given status.
+# True when a request for path $2 (default /) on host $3 (default
+# 127.0.0.1) gets status $1.
 status_is() {
-  [[ $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/) == "$1" ]]
+  [[ $(curl -gs -o /dev/null -w '%{http_code}' "http://${3:-127.0.0.1}${2:-/}") == "$1" ]]
 }
 
 V6_GOOD=$'2400:cb00::/32\n2606:4700::/32\n'
@@ -165,6 +166,16 @@ eventually status_is 200
 write_stub "$V4_NO_LOCAL" "$V6_GOOD"
 CLOUDFLARE_IPS_SOURCE=$STUB_DIR "$UPDATER"
 eventually status_is 403
+
+# Not an edge now, but /healthz from the host itself still passes; from
+# the container's own address (not loopback) it does not (0019)
+echo -e "${YELLOW}[test]${NC} /healthz under cloudflare-only"
+status_is 200 /healthz
+status_is 403 /healthz "$(hostname -I | awk '{print $1}')"
+status_is 403 /healthz/x
+if ip -6 addr show dev lo | grep -q 'inet6 ::1/'; then
+  status_is 200 /healthz '[::1]'
+fi
 
 # A host from an older version with the old allow/deny filter active: a
 # re-run must not turn on real client IP, or "deny all" blocks visitors
