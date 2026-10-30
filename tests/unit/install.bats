@@ -821,3 +821,154 @@ check_ufw_enabled() {
     [[ $(configure_ufw) == *"left disabled"* ]]
   done
 }
+
+# Stubs the health checks' commands: $1..$4 are 1 (healthy) or 0 for
+# nginx, bun-app, the /healthz probe and certbot. NGINX_SITE gets the
+# /healthz location; every call is logged to HEALTH_LOG.
+stub_health() {
+  NGINX_UP=$1 APP_UP=$2 PROBE_OK=$3 CERTBOT_OK=$4
+  HEALTH_LOG=$BATS_TEST_TMPDIR/health
+  : >"$HEALTH_LOG"
+  NGINX_SITE=$BATS_TEST_TMPDIR/site
+  printf 'server {\n  location = /healthz {\n  }\n}\n' >"$NGINX_SITE"
+  systemctl() {
+    echo "systemctl $*" >>"$HEALTH_LOG"
+    case $* in
+      *nginx) [ "$NGINX_UP" = 1 ] ;;
+      *bun-app) [ "$APP_UP" = 1 ] ;;
+      *) return 1 ;;
+    esac
+  }
+  curl() {
+    echo "curl $*" >>"$HEALTH_LOG"
+    [ "$PROBE_OK" = 1 ] || return 22
+    echo ok
+  }
+  certbot() {
+    echo certbot >>"$HEALTH_LOG"
+    [ "$CERTBOT_OK" = 1 ]
+  }
+  snap() { return 1; }
+  # Root unless AS_ROOT=0, whoever runs the tests
+  is_root() { [ "${AS_ROOT:-1}" = 1 ]; }
+}
+
+# Stubs with $1..$4 (see stub_health), checks everything, and expects
+# exactly one problem containing $5.
+one_problem() {
+  stub_health "$1" "$2" "$3" "$4"
+  health_problems 1 1
+  [ "${#PROBLEMS[@]}" -eq 1 ] || {
+    echo "problems: ${PROBLEMS[*]}"
+    return 1
+  }
+  [[ ${PROBLEMS[0]} == *"$5"* ]]
+}
+
+@test "health_problems: a healthy host has no problems" {
+  stub_health 1 1 1 1
+  health_problems 1 1
+  [ "${#PROBLEMS[@]}" -eq 0 ]
+  [ "${#CHECKS[@]}" -eq 4 ]
+}
+
+@test "health_problems: each failure is one problem" {
+  one_problem 0 1 1 1 "Nginx is not active"
+  one_problem 1 0 1 1 "Service 'bun-app' is not active"
+  one_problem 1 1 0 1 "Health probe failed; see: curl -i http://127.0.0.1/healthz"
+  one_problem 1 1 1 0 "Certbot does not run"
+}
+
+@test "health_problems: as non-root, Certbot is the link, not certbot --version" {
+  stub_health 1 1 1 0
+  AS_ROOT=0
+  CERTBOT_BIN=$BATS_TEST_TMPDIR/certbot
+  printf '#!/bin/sh\n' >"$BATS_TEST_TMPDIR/real-certbot"
+  chmod 755 "$BATS_TEST_TMPDIR/real-certbot"
+  ln -s "$BATS_TEST_TMPDIR/real-certbot" "$CERTBOT_BIN"
+  health_problems 1 1
+  [ "${#PROBLEMS[@]}" -eq 0 ]
+  run grep -c '^certbot' "$HEALTH_LOG"
+  [ "$output" = 0 ]
+  rm "$BATS_TEST_TMPDIR/real-certbot"
+  health_problems 1 1
+  [[ ${PROBLEMS[*]} == *"Certbot does not run"* ]]
+}
+
+@test "health_problems: the probe retries through Nginx on 127.0.0.1" {
+  stub_health 1 1 1 1
+  health_problems 1 1
+  grep -q -- '--retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1/healthz$' "$HEALTH_LOG"
+}
+
+@test "health_problems: app and certbot off skip their checks" {
+  stub_health 1 0 0 0
+  health_problems 0 0
+  [ "${#PROBLEMS[@]}" -eq 0 ]
+  [ "${CHECKS[*]}" = "Nginx is active" ]
+  [ "$(cat "$HEALTH_LOG")" = "systemctl is-active --quiet nginx" ]
+}
+
+@test "health_problems: a site without the /healthz location is not probed" {
+  stub_health 1 1 0 1
+  printf 'server {\n}\n' >"$NGINX_SITE"
+  health_problems 1 1
+  [ "${#PROBLEMS[@]}" -eq 0 ]
+  [ "${#CHECKS[@]}" -eq 3 ]
+  run grep -c '^curl' "$HEALTH_LOG"
+  [ "$output" = 0 ]
+}
+
+@test "run_check: no installation found" {
+  stub_health 1 1 1 1
+  earlier_info
+  run run_check
+  [ "$status" -eq 1 ]
+  [[ $output == *"No installation found ($APP_INFO_FILE is missing)"* ]]
+  [ ! -s "$HEALTH_LOG" ]
+}
+
+@test "run_check: no unit and no certbot check only Nginx" {
+  stub_health 1 0 0 0
+  earlier_info enabled
+  BUN_APP_UNIT=$BATS_TEST_TMPDIR/bun-app.service
+  CERTBOT_BIN=$BATS_TEST_TMPDIR/certbot
+  run run_check
+  [ "$status" -eq 0 ]
+  [[ $output == *"Health check: OK"*"Nginx is active"* ]]
+  [[ $output != *bun-app* && $output != *Certbot* ]]
+}
+
+@test "run_check: the unit and a dangling certbot link are checked" {
+  stub_health 1 1 1 0
+  earlier_info enabled
+  BUN_APP_UNIT=$BATS_TEST_TMPDIR/bun-app.service
+  touch "$BUN_APP_UNIT"
+  CERTBOT_BIN=$BATS_TEST_TMPDIR/certbot
+  ln -s "$BATS_TEST_TMPDIR/missing" "$CERTBOT_BIN"
+  run run_check
+  [ "$status" -eq 1 ]
+  [[ $output == *"problems found"*"Certbot does not run"* ]]
+  grep -q 'is-active --quiet bun-app' "$HEALTH_LOG"
+  grep -q '^curl' "$HEALTH_LOG"
+}
+
+@test "parse_args: --check exits 0 or 1 and takes no lock" {
+  LOCK_FILE=$BATS_TEST_TMPDIR/lock
+  BUN_APP_UNIT=$BATS_TEST_TMPDIR/bun-app.service
+  CERTBOT_BIN=$BATS_TEST_TMPDIR/certbot
+  earlier_info enabled
+  stub_health 1 1 1 1
+  run parse_args --check
+  [ "$status" -eq 0 ]
+  stub_health 0 1 1 1
+  run parse_args -c
+  [ "$status" -eq 1 ]
+  [ ! -e "$LOCK_FILE" ]
+}
+
+@test "--check runs before the root check" {
+  run bash "$REPO_ROOT/install.sh" --check
+  [[ $output == *"Health check: "* ]]
+  [[ $output != *"must be run as root"* ]]
+}

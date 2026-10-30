@@ -5,6 +5,13 @@ const server = Bun.serve({
   async fetch(req) {
     const path = new URL(req.url).pathname;
 
+    // Health probe for monitors and install.sh --check
+    if (path === "/healthz") {
+      return new Response("ok", {
+        headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" }
+      });
+    }
+
     if (path === "/") {
       return Response.json({
         message: "Welcome to Bun!"

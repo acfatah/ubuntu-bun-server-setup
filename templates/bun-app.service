@@ -48,5 +48,10 @@ CapabilityBoundingSet=
 SystemCallArchitectures=native
 # No MemoryDenyWriteExecute: Bun's JIT needs writable+executable memory.
 
+# Limits. Override with `systemctl edit bun-app`, e.g. MemoryMax=512M
+TimeoutStopSec=30
+LimitNOFILE=65536
+#MemoryMax=
+
 [Install]
 WantedBy=multi-user.target

@@ -32,6 +32,15 @@ assert_file_contains /var/log/bun-installer.log "Certbot skipped (SKIP_CERTBOT=1
 
 curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "Hello World"
 
+# --check infers skip mode: Nginx only, no bun-app, probe or Certbot
+check_out=$(bash "$INSTALLER" --check)
+echo "$check_out"
+grep -q "Health check: OK" <<<"$check_out"
+if grep -qE "bun-app|healthz|Certbot" <<<"$check_out"; then
+  echo "${RED}Assertion failed:${NC} --check checked what skip mode lacks" >&2
+  exit 1
+fi
+
 # Bun is still installed system-wide, but no service user is created
 assert_equals "bun binary type" "regular file" "$(stat -c %F /usr/local/bin/bun)"
 if id -u bun-app >/dev/null 2>&1; then
@@ -66,6 +75,7 @@ assert_file_contains /var/log/bun-installer.log "Cloudflare: only the real clien
 echo "<h1>My own site</h1>" >/var/www/html/index.html
 run_installer SKIP_BUN_APP=1
 certbot --version
+grep -q "Certbot runs" <<<"$(bash "$INSTALLER" --check)"
 ufw status | grep -q "^Status: active"
 assert_file_contains "$INFO" '^ufw="enabled"$'
 assert_file_contains /var/log/bun-installer.log "Kept existing /var/www/html/index.html"
