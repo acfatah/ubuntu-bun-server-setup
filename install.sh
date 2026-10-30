@@ -19,13 +19,19 @@ set -Eeuo pipefail
 #   SKIP_CERTBOT=1    -> skip snapd and the Certbot snap
 #   SKIP_UFW=1        -> leave UFW untouched (rules, policy and state)
 #
+# Bun version (env var or KEY=VALUE argument):
+#   BUN_VERSION=X.Y.Z|latest -> install this Bun instead of the pin
+#
+# Bun download source (env var only):
+#   BUN_DOWNLOAD_BASE_URL=<url> -> Bun releases URL (https:// mirror, file://)
+#
 # Template source (env var only):
 #   TEMPLATE_REF=<ref>      -> git ref to fetch templates from
 #   TEMPLATE_BASE_URL=<url> -> templates directory URL (https:// mirror, file://)
 #
 # Usage:
-#   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1]
-#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1]
+#   sudo bash install.sh [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1] [BUN_VERSION=X.Y.Z|latest]
+#   curl -fsSL <url>/install.sh | sudo bash -s -- [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1] [BUN_VERSION=X.Y.Z|latest]
 #   bash install.sh --version | --help
 # ==============================================================================
 
@@ -36,6 +42,13 @@ INSTALLER_VERSION=dev
 INSTALLER_REF=main
 TEMPLATE_SHA256=''
 
+# Bun pin: bumped by hand (see RELEASE.md). Same in dev and releases.
+# Sums from the release's SHASUMS256.txt, cross-checked against the zips.
+BUN_PINNED_VERSION=1.4.4
+BUN_PINNED_SHA256='bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c  bun-linux-x64.zip
+e0446eb55995772eb9894bebae9a6be368d985a8b9271ee124486f9946eedd76  bun-linux-x64-baseline.zip
+baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e  bun-linux-aarch64.zip'
+
 APP_DIR=/srv/app
 NGINX_ROOT=/var/www/app/dist
 LOG_FILE=/var/log/bun-installer.log
@@ -44,7 +57,7 @@ OS_RELEASE=/etc/os-release
 APP_INFO_FILE=/var/lib/app-info/application.info
 # What configure_ufw did this run; recorded as ufw= in APP_INFO_FILE
 UFW_STATE=""
-USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1]"
+USAGE="Usage: install.sh [--version | --help] [SKIP_BUN_APP=1] [SKIP_CLOUDFLARE=1] [FULL_UPGRADE=1] [SKIP_UPGRADE=1] [SKIP_CERTBOT=1] [SKIP_UFW=1] [BUN_VERSION=X.Y.Z|latest]"
 BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw)
 # apt-get update attempts and the pause between them, in seconds
 APT_UPDATE_TRIES=3
@@ -62,16 +75,20 @@ TEMPLATE_REF=${TEMPLATE_REF:-$INSTALLER_REF}
 TEMPLATE_BASE_URL=${TEMPLATE_BASE_URL:-https://raw.githubusercontent.com/acfatah/ubuntu-bun-server-setup/$TEMPLATE_REF/templates}
 # Local templates are used only when run from a file (clone or test), never
 # when piped, so a stray ./templates in cwd is never deployed.
+BUN_VERSION=${BUN_VERSION:-$BUN_PINNED_VERSION}
+BUN_DOWNLOAD_BASE_URL=${BUN_DOWNLOAD_BASE_URL:-https://github.com/oven-sh/bun/releases/download}
+# Read for the avx2 flag (x64 baseline build); a variable for unit tests
+CPUINFO=/proc/cpuinfo
 TEMPLATE_LOCAL_DIR=""
 if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
   TEMPLATE_LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/templates"
 fi
 
 # Downloads $1 to $2: https or file only (redirects https only), TLS 1.2+,
-# retries transient errors, gives up after 60 s per attempt.
+# retries transient errors, gives up after $3 seconds per attempt (60).
 fetch_url() {
   curl -fsSL --proto '=https,file' --proto-redir '=https' --tlsv1.2 \
-    --retry 3 --max-time 60 "$1" -o "$2"
+    --retry 3 --max-time "${3:-60}" "$1" -o "$2"
 }
 
 download_template() {
@@ -125,8 +142,8 @@ verify_template() {
   echo "Checksum OK: $name"
 }
 
-# Prints the installer version, where templates come from and whether
-# downloads are verified.
+# Prints the installer version, where templates come from, whether
+# downloads are verified, and the Bun target with how it is verified.
 print_version() {
   echo "ubuntu-bun-server-setup ${INSTALLER_VERSION}"
   echo "templates: ${TEMPLATE_REF} from ${TEMPLATE_BASE_URL}"
@@ -140,9 +157,14 @@ print_version() {
   if [[ -n $TEMPLATE_LOCAL_DIR && -d $TEMPLATE_LOCAL_DIR ]]; then
     echo "local templates (used first): ${TEMPLATE_LOCAL_DIR}"
   fi
+  if [[ $BUN_VERSION == "$BUN_PINNED_VERSION" ]]; then
+    echo "bun: ${BUN_VERSION} (pinned ${BUN_PINNED_VERSION}, verified against embedded SHA-256)"
+  else
+    echo "bun: ${BUN_VERSION} (pinned ${BUN_PINNED_VERSION}, verified against the release's SHASUMS256.txt)"
+  fi
 }
 
-# Prints usage, toggles and the template source overrides.
+# Prints usage, toggles, the Bun version and the download source overrides.
 print_help() {
   cat <<EOF
 $USAGE
@@ -151,7 +173,7 @@ Provisions Ubuntu 22.04+ with Bun, Nginx, UFW, Certbot and a sample Bun
 app. Run as root.
 
 Options:
-  -V, --version      print the version and template source, then exit
+  -V, --version      print the version, template source and Bun target, then exit
   -h, --help         print this help, then exit
 
 Toggles (KEY=VALUE argument or env var; only 1 enables):
@@ -161,6 +183,13 @@ Toggles (KEY=VALUE argument or env var; only 1 enables):
   SKIP_UPGRADE=1     apt-get update only, no package upgrade
   SKIP_CERTBOT=1     skip snapd and the Certbot snap
   SKIP_UFW=1         leave UFW untouched (rules, policy and state)
+
+Bun version (KEY=VALUE argument or env var):
+  BUN_VERSION=X.Y.Z  install this Bun release instead of ${BUN_PINNED_VERSION}
+  BUN_VERSION=latest install the newest Bun release
+
+Bun download source (env var only):
+  BUN_DOWNLOAD_BASE_URL=<url>  Bun releases URL: https:// mirror or file://
 
 Template source (env var only):
   TEMPLATE_REF=<ref>       git ref to fetch templates from (default: ${INSTALLER_REF})
@@ -248,6 +277,16 @@ skip_ufw() {
   [[ ${SKIP_UFW:-} == 1 ]]
 }
 
+# Exits 1 unless BUN_VERSION is X.Y.Z or latest: it ends up in a URL and
+# a typo must not silently install something else.
+check_bun_version() {
+  if [[ $BUN_VERSION != latest && ! $BUN_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "${RED}Invalid BUN_VERSION=${BUN_VERSION} (use X.Y.Z or latest)${NC}" >&2
+    echo "$USAGE" >&2
+    exit 1
+  fi
+}
+
 # Applies KEY=VALUE arguments as toggles; only known keys are accepted.
 parse_args() {
   local arg name
@@ -261,6 +300,12 @@ parse_args() {
     echo -e "${RED}Invalid TEMPLATE_BASE_URL=${TEMPLATE_BASE_URL} (use https:// or file://)${NC}" >&2
     exit 1
   fi
+  if [[ ! $BUN_DOWNLOAD_BASE_URL =~ ^(https|file)://.+ ]]; then
+    echo -e "${RED}Invalid BUN_DOWNLOAD_BASE_URL=${BUN_DOWNLOAD_BASE_URL} (use https:// or file://)${NC}" >&2
+    exit 1
+  fi
+  # Env var checked first, so --version never prints a bad value
+  check_bun_version
 
   for arg in "$@"; do
     case $arg in
@@ -289,6 +334,10 @@ parse_args() {
         ;;
       SKIP_UFW=*)
         SKIP_UFW="${arg#*=}"
+        ;;
+      BUN_VERSION=*)
+        BUN_VERSION="${arg#*=}"
+        check_bun_version
         ;;
       *)
         echo -e "${RED}Unknown argument: $arg${NC}" >&2
@@ -531,30 +580,159 @@ install_certbot() {
   snap set certbot trust-plugin-with-root=ok
 }
 
-# Installs Bun system-wide to /usr/local/bin/bun so the unprivileged
-# bun-app user can execute it. Skips if that binary already works for a
-# non-root user; replaces a legacy symlink into /root/.bun.
-install_bun() {
-  local bun_bin=/usr/local/bin/bun
-  local installer
+# Prints the Bun release zip for this host: x64 needs the baseline build
+# when the CPU lacks AVX2. Fails on any other architecture.
+bun_asset() {
+  local arch
+  arch=$(uname -m)
+  case $arch in
+    x86_64)
+      if grep -qw avx2 "$CPUINFO" 2>/dev/null; then
+        echo bun-linux-x64.zip
+      else
+        echo bun-linux-x64-baseline.zip
+      fi
+      ;;
+    aarch64 | arm64)
+      echo bun-linux-aarch64.zip
+      ;;
+    *)
+      echo -e "${RED}Unsupported architecture for Bun: ${arch}${NC}" >&2
+      return 1
+      ;;
+  esac
+}
 
-  # runuser, not setpriv: setpriv reports success on a binary under /root
-  if runuser -u nobody -- "$bun_bin" --version >/dev/null 2>&1; then
-    echo -e "${YELLOW}Bun already installed: $("$bun_bin" --version)${NC}"
+# Prints the X.Y.Z to install. "latest" follows GitHub's redirect to the
+# newest release tag first, so the zip and its sums come from one release
+# and a re-run on the same release is a no-op.
+resolve_bun_version() {
+  local url version
+  if [[ $BUN_VERSION != latest ]]; then
+    echo "$BUN_VERSION"
     return
   fi
+  if ! url=$(curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --retry 3 --max-time 60 -o /dev/null -w '%{url_effective}' \
+    https://github.com/oven-sh/bun/releases/latest); then
+    echo -e "${RED}Could not look up the latest Bun release.${NC}" >&2
+    return 1
+  fi
+  version=${url##*/bun-v}
+  if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "${RED}Latest Bun release has an unexpected tag: ${url}${NC}" >&2
+    return 1
+  fi
+  echo "$version"
+}
 
-  if [[ -L $bun_bin ]]; then
-    echo -e "${YELLOW}Replacing legacy Bun symlink $bun_bin...${NC}"
-    rm -f "$bun_bin"
+# Prints the expected SHA-256 of zip $2 for Bun $1: embedded for the pin,
+# else from that release's SHASUMS256.txt, downloaded into dir $3. A
+# missing entry fails.
+bun_expected_sha() {
+  local version=$1 asset=$2 dir=$3 sums=$BUN_PINNED_SHA256 expected
+  if [[ $version != "$BUN_PINNED_VERSION" ]]; then
+    if ! fetch_url "${BUN_DOWNLOAD_BASE_URL}/bun-v${version}/SHASUMS256.txt" "$dir/SHASUMS256.txt"; then
+      echo -e "${RED}Could not download SHASUMS256.txt for Bun ${version}.${NC}" >&2
+      return 1
+    fi
+    sums=$(<"$dir/SHASUMS256.txt")
+  fi
+  expected=$(awk -v name="$asset" '$2 == name {print $1; exit}' <<<"$sums")
+  if [[ ! $expected =~ ^[0-9a-f]{64}$ ]]; then
+    echo -e "${RED}No checksum for ${asset} in Bun ${version}.${NC}" >&2
+    return 1
+  fi
+  echo "$expected"
+}
+
+# Downloads Bun $1's zip $2 into dir $3, verifies it and unpacks it there.
+# Prints the binary's path on stdout and its progress on stderr. Writes
+# nothing outside $3, and runs nothing from it: /tmp may be noexec.
+fetch_bun() {
+  local version=$1 asset=$2 work=$3 how=embedded expected actual bin
+  [[ $version == "$BUN_PINNED_VERSION" ]] || how=SHASUMS256.txt
+  if ! expected=$(bun_expected_sha "$version" "$asset" "$work"); then
+    return 1
+  fi
+  echo -e "${GREEN}Downloading Bun ${version} (${asset})...${NC}" >&2
+  # ~35 MB: allow more than fetch_url's default minute per attempt
+  if ! fetch_url "${BUN_DOWNLOAD_BASE_URL}/bun-v${version}/${asset}" "$work/$asset" 600; then
+    echo -e "${RED}Could not download ${asset} for Bun ${version}.${NC}" >&2
+    return 1
+  fi
+  actual=$(sha256sum "$work/$asset")
+  actual=${actual%% *}
+  if [[ $actual != "$expected" ]]; then
+    echo -e "${RED}Bun ${asset} failed its checksum (expected ${expected}, got ${actual}).${NC}" >&2
+    return 1
+  fi
+  echo "Checksum OK: ${asset} (${how})" >&2
+  if ! unzip -q "$work/$asset" -d "$work"; then
+    echo -e "${RED}Could not unpack ${asset}.${NC}" >&2
+    return 1
+  fi
+  bin=$work/${asset%.zip}/bun
+  if [[ ! -f $bin ]]; then
+    echo -e "${RED}${asset} has no ${asset%.zip}/bun.${NC}" >&2
+    return 1
+  fi
+  echo "$bin"
+}
+
+# Installs the target Bun (BUN_VERSION, the pin by default) system-wide to
+# /usr/local/bin/bun, so the unprivileged bun-app user can execute it. A
+# Bun of another version is replaced, the same version left alone; nothing
+# is written to /usr/local/bin before the checksum passes.
+install_bun() {
+  local bun_bin=/usr/local/bin/bun
+  local target asset installed work bin tmp="" got
+
+  if ! target=$(resolve_bun_version) || ! asset=$(bun_asset); then
+    return 1
+  fi
+  # runuser, not setpriv: setpriv reports success on a binary under /root
+  installed=$(runuser -u nobody -- "$bun_bin" --version 2>/dev/null) || installed=""
+  if [[ $installed == "$target" ]]; then
+    echo -e "${YELLOW}Bun ${target} already installed.${NC}"
+    return
+  fi
+  if [[ -n $installed ]]; then
+    echo -e "${GREEN}Replacing Bun ${installed} with ${target}...${NC}"
+  else
+    echo -e "${GREEN}Installing Bun ${target} to /usr/local/bin...${NC}"
   fi
 
-  echo -e "${GREEN}Installing Bun to /usr/local...${NC}"
-  # mktemp: unpredictable name, no symlink race on a fixed /tmp path
-  installer=$(mktemp)
-  curl -fsSL https://bun.sh/install -o "$installer"
-  BUN_INSTALL=/usr/local bash "$installer"
-  rm -f "$installer"
+  # Outside /usr/local/bin, so a failed download leaves nothing there
+  work=$(mktemp -d)
+  if ! bin=$(fetch_bun "$target" "$asset" "$work"); then
+    rm -rf "$work"
+    return 1
+  fi
+  # Verified copy next to the target, run from there (/tmp may be noexec)
+  # and renamed over it: a running bun-app keeps its old inode
+  if ! tmp=$(mktemp /usr/local/bin/.bun.XXXXXX) \
+    || ! install -m 755 "$bin" "$tmp"; then
+    [[ -z $tmp ]] || rm -f "$tmp"
+    rm -rf "$work"
+    return 1
+  fi
+  rm -rf "$work"
+  got=$("$tmp" --version 2>/dev/null) || got=""
+  if [[ $got != "$target" ]]; then
+    echo -e "${RED}${asset} holds Bun '${got}', not ${target}.${NC}" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+  if [[ -L $bun_bin ]]; then
+    echo -e "${YELLOW}Replacing legacy Bun symlink $bun_bin...${NC}"
+  fi
+  if ! mv -f "$tmp" "$bun_bin"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  # The upstream installer ships bunx as a link to bun; keep it
+  ln -sfn bun /usr/local/bin/bunx
 
   echo -e "${GREEN}Bun version: v$("$bun_bin" --version)${NC}"
 }
@@ -742,7 +920,7 @@ create_systemd_service() {
 }
 
 # Emits build and environment metadata to APP_INFO_FILE.
-# Values include distro info and Bun version if available.
+# Values include distro info and the version of /usr/local/bin/bun.
 # Rewritten on every run: it records the latest install, not user data.
 write_application_info() {
   echo -e "${GREEN}Writing application metadata...${NC}"
@@ -758,7 +936,7 @@ write_application_info() {
   local distro_arch
   distro_arch=$(uname -m)
   local application_version
-  application_version=$(bun --version 2>/dev/null || echo "unknown")
+  application_version=$(/usr/local/bin/bun --version 2>/dev/null || echo "unknown")
   local template_ref=$TEMPLATE_REF
   if [[ -n $TEMPLATE_LOCAL_DIR && -d $TEMPLATE_LOCAL_DIR ]]; then
     template_ref=local

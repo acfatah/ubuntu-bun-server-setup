@@ -3,7 +3,7 @@
 
 setup() {
   REPO_ROOT=$(cd "$BATS_TEST_DIRNAME/../.." && pwd)
-  unset SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_CERTBOT SKIP_UFW TEMPLATE_REF TEMPLATE_BASE_URL
+  unset SKIP_BUN_APP SKIP_CLOUDFLARE FULL_UPGRADE SKIP_UPGRADE SKIP_CERTBOT SKIP_UFW TEMPLATE_REF TEMPLATE_BASE_URL BUN_VERSION BUN_DOWNLOAD_BASE_URL
   # shellcheck source=install.sh
   source "$REPO_ROOT/install.sh"
   # install.sh sets -u for itself; bats expects it off
@@ -246,6 +246,212 @@ stub_curl() {
   [ "$status" -eq 22 ]
 }
 
+@test "fetch_url: a third argument overrides the time cap" {
+  stub_curl 0
+  fetch_url https://x/t/a "$FILE" 600
+  local args
+  args=$(tr '\n' ' ' <"$CURL_LOG")
+  [[ $args == *"--max-time 600 "* ]]
+}
+
+@test "parse_args: BUN_VERSION defaults to the pin" {
+  [ "$BUN_VERSION" = "$BUN_PINNED_VERSION" ]
+  [[ $BUN_PINNED_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+@test "parse_args: BUN_VERSION X.Y.Z and latest are accepted, as argument and from env" {
+  local value
+  for value in 1.4.3 latest 10.0.12; do
+    run parse_args "BUN_VERSION=$value"
+    [ "$status" -eq 0 ] || {
+      echo "argument BUN_VERSION=$value: $output"
+      return 1
+    }
+    BUN_VERSION=$value
+    run parse_args
+    [ "$status" -eq 0 ] || {
+      echo "env BUN_VERSION=$value: $output"
+      return 1
+    }
+  done
+}
+
+@test "parse_args: an invalid BUN_VERSION is rejected, as argument and from env" {
+  local value
+  for value in yes 1.4 v1.4.4 1.4.4-canary '1.4.4 ' '' 'latest '; do
+    run parse_args "BUN_VERSION=$value"
+    [ "$status" -eq 1 ] || {
+      echo "accepted argument BUN_VERSION='$value'"
+      return 1
+    }
+    [[ $output == *"Invalid BUN_VERSION=$value (use X.Y.Z or latest)"* ]]
+    [[ $output == *Usage:* ]]
+  done
+  for value in yes 1.4 v1.4.4 1.4.4-canary '1.4.4 '; do
+    BUN_VERSION=$value
+    run parse_args --version
+    [ "$status" -eq 1 ] || {
+      echo "accepted env BUN_VERSION='$value'"
+      return 1
+    }
+    [[ $output == *"Invalid BUN_VERSION=$value (use X.Y.Z or latest)"* ]]
+  done
+}
+
+@test "an invalid BUN_VERSION exits before the root check" {
+  run bash "$REPO_ROOT/install.sh" BUN_VERSION=yes
+  [ "$status" -eq 1 ]
+  [[ $output == *"Invalid BUN_VERSION=yes"* ]]
+  [[ $output != *"must be run as root"* ]]
+}
+
+@test "parse_args: BUN_DOWNLOAD_BASE_URL other than https:// or file:// is rejected" {
+  local url
+  for url in http://example.com/b ftp://example.com/b example.com/b https://; do
+    BUN_DOWNLOAD_BASE_URL=$url
+    run parse_args
+    [ "$status" -eq 1 ] || {
+      echo "accepted BUN_DOWNLOAD_BASE_URL='$url'"
+      return 1
+    }
+    [[ $output == *"Invalid BUN_DOWNLOAD_BASE_URL=$url (use https:// or file://)"* ]]
+  done
+}
+
+@test "parse_args: BUN_DOWNLOAD_BASE_URL https:// and file:// are accepted" {
+  local url
+  for url in https://mirror/bun file:///root/bun-mirror; do
+    BUN_DOWNLOAD_BASE_URL=$url
+    run parse_args
+    [ "$status" -eq 0 ] || {
+      echo "rejected BUN_DOWNLOAD_BASE_URL='$url': $output"
+      return 1
+    }
+  done
+}
+
+@test "BUN_PINNED_SHA256: one sha256 per supported asset" {
+  local asset
+  [ "$(wc -l <<<"$BUN_PINNED_SHA256")" -eq 3 ]
+  for asset in bun-linux-x64.zip bun-linux-x64-baseline.zip bun-linux-aarch64.zip; do
+    grep -Eq "^[0-9a-f]{64}  $asset\$" <<<"$BUN_PINNED_SHA256" || {
+      echo "no sum for $asset"
+      return 1
+    }
+  done
+}
+
+# Stubs uname to print machine $1, and points CPUINFO at a file whose
+# flags line is $2.
+fake_cpu() {
+  UNAME_M=$1
+  uname() { echo "$UNAME_M"; }
+  CPUINFO=$BATS_TEST_TMPDIR/cpuinfo
+  printf 'processor\t: 0\nflags\t\t: %s\n' "$2" >"$CPUINFO"
+}
+
+@test "bun_asset: x64 with AVX2, x64 without, aarch64" {
+  fake_cpu x86_64 'fpu sse4_2 avx avx2 bmi2'
+  [ "$(bun_asset)" = bun-linux-x64.zip ]
+  fake_cpu x86_64 'fpu sse4_2 avx'
+  [ "$(bun_asset)" = bun-linux-x64-baseline.zip ]
+  fake_cpu aarch64 'fp asimd'
+  [ "$(bun_asset)" = bun-linux-aarch64.zip ]
+}
+
+@test "bun_asset: an unreadable cpuinfo picks the x64 baseline build" {
+  fake_cpu x86_64 avx2
+  CPUINFO=$BATS_TEST_TMPDIR/missing
+  [ "$(bun_asset)" = bun-linux-x64-baseline.zip ]
+}
+
+@test "bun_asset: another architecture is refused" {
+  fake_cpu riscv64 ''
+  run bun_asset
+  [ "$status" -eq 1 ]
+  [[ $output == *"Unsupported architecture for Bun: riscv64"* ]]
+}
+
+# Stubs curl: logs its arguments, copies file $1 to the -o path, or prints
+# $2 for -w; exits with $3 (default 0).
+stub_curl_serving() {
+  CURL_BODY=$1 CURL_OUT=${2:-} CURL_STATUS=${3:-0}
+  CURL_LOG=$BATS_TEST_TMPDIR/curl.args
+  curl() {
+    printf '%s\n' "$@" >>"$CURL_LOG"
+    local out=""
+    while [[ $# -gt 0 ]]; do
+      [[ $1 == -o ]] && out=$2
+      shift
+    done
+    [[ $CURL_STATUS -eq 0 ]] || return "$CURL_STATUS"
+    if [[ $out != /dev/null && -n $CURL_BODY ]]; then
+      cat "$CURL_BODY" >"$out"
+    fi
+    printf '%s' "$CURL_OUT"
+  }
+}
+
+@test "bun_expected_sha: the pin uses the embedded sum, no download" {
+  stub_curl_serving ''
+  local expected
+  expected=$(awk '$2 == "bun-linux-aarch64.zip" {print $1}' <<<"$BUN_PINNED_SHA256")
+  [ "$(bun_expected_sha "$BUN_PINNED_VERSION" bun-linux-aarch64.zip "$BATS_TEST_TMPDIR")" = "$expected" ]
+  [ ! -e "$CURL_LOG" ]
+}
+
+@test "bun_expected_sha: another version reads its release's SHASUMS256.txt" {
+  local sums=$BATS_TEST_TMPDIR/sums sha
+  sha=$(printf '%064d' 7)
+  printf '%s  bun-linux-x64-profile.zip\n%s  bun-linux-x64.zip\n' "$(printf '%064d' 1)" "$sha" >"$sums"
+  stub_curl_serving "$sums"
+  mkdir "$BATS_TEST_TMPDIR/work"
+  [ "$(bun_expected_sha 1.4.3 bun-linux-x64.zip "$BATS_TEST_TMPDIR/work")" = "$sha" ]
+  grep -qx "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/SHASUMS256.txt" "$CURL_LOG"
+}
+
+@test "bun_expected_sha: a missing entry or a failed download fails" {
+  local sums=$BATS_TEST_TMPDIR/sums
+  printf '%s  bun-linux-x64-baseline.zip\n' "$(printf '%064d' 1)" >"$sums"
+  stub_curl_serving "$sums"
+  run bun_expected_sha 1.4.3 bun-linux-x64.zip "$BATS_TEST_TMPDIR"
+  [ "$status" -eq 1 ]
+  [[ $output == *"No checksum for bun-linux-x64.zip in Bun 1.4.3"* ]]
+  stub_curl_serving "$sums" '' 22
+  run bun_expected_sha 1.4.3 bun-linux-x64-baseline.zip "$BATS_TEST_TMPDIR"
+  [ "$status" -eq 1 ]
+  [[ $output == *"Could not download SHASUMS256.txt for Bun 1.4.3"* ]]
+}
+
+@test "resolve_bun_version: X.Y.Z is used as is, with no lookup" {
+  stub_curl_serving ''
+  BUN_VERSION=1.4.3
+  [ "$(resolve_bun_version)" = 1.4.3 ]
+  [ ! -e "$CURL_LOG" ]
+}
+
+@test "resolve_bun_version: latest follows the release redirect" {
+  stub_curl_serving '' https://github.com/oven-sh/bun/releases/tag/bun-v1.5.0
+  BUN_VERSION=latest
+  [ "$(resolve_bun_version)" = 1.5.0 ]
+  local args
+  args=$(tr '\n' ' ' <"$CURL_LOG")
+  [[ $args == *"--proto =https "* ]]
+  [[ $args == *"--tlsv1.2 "* ]]
+}
+
+@test "resolve_bun_version: latest with an odd tag or a failed lookup fails" {
+  BUN_VERSION=latest
+  stub_curl_serving '' https://github.com/oven-sh/bun/releases/tag/bun-v1.5.0-canary
+  run resolve_bun_version
+  [ "$status" -eq 1 ]
+  [[ $output == *"unexpected tag"* ]]
+  stub_curl_serving '' '' 6
+  run resolve_bun_version
+  [ "$status" -eq 1 ]
+  [[ $output == *"Could not look up the latest Bun release"* ]]
+}
+
 @test "print_version: dev channel says templates are not verified" {
   run print_version
   [ "$status" -eq 0 ]
@@ -264,6 +470,22 @@ stub_curl() {
   run print_version
   [ "$status" -eq 0 ]
   [[ $output == *"templates: not verified (TEMPLATE_REF differs from INSTALLER_REF)"* ]]
+}
+
+@test "print_version: the pinned Bun is verified against embedded sums" {
+  run print_version
+  [ "$status" -eq 0 ]
+  [[ $output == *"bun: $BUN_PINNED_VERSION (pinned $BUN_PINNED_VERSION, verified against embedded SHA-256)"* ]]
+}
+
+@test "print_version: another Bun is verified against its SHASUMS256.txt" {
+  local value
+  for value in 1.4.3 latest; do
+    BUN_VERSION=$value
+    run print_version
+    [ "$status" -eq 0 ]
+    [[ $output == *"bun: $value (pinned $BUN_PINNED_VERSION, verified against the release's SHASUMS256.txt)"* ]]
+  done
 }
 
 @test "parse_args: SKIP_BUN_APP=1 serves the stock web root" {

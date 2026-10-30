@@ -27,6 +27,13 @@ assert_file_contains /etc/nginx/sites-available/default "^# Managed by ubuntu-bu
 
 curl --retry 5 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1 | grep -q "Hello Bun"
 
+# Exactly the pinned Bun, checked against its embedded sum (0002)
+pinned=$(sed -n 's/^BUN_PINNED_VERSION=//p' "$INSTALLER")
+assert_equals "bun version" "$pinned" "$(/usr/local/bin/bun --version)"
+assert_file_contains /var/log/bun-installer.log "Checksum OK: bun-linux-x64.*\.zip (embedded)"
+assert_equals "bunx link" bun "$(readlink /usr/local/bin/bunx)"
+assert_file_contains /var/lib/app-info/application.info "^application_version=\"$pinned\"\$"
+
 # bun-app runs unprivileged and sandboxed (S2)
 assert_equals "unit User" bun-app "$(systemctl show -p User --value bun-app)"
 assert_equals "bun binary type" "regular file" "$(stat -c %F /usr/local/bin/bun)"
