@@ -28,6 +28,12 @@ grep -q "ubuntu-bun-server-setup 9.9.9" <<<"$version"
 grep -q "templates: v9.9.9 from https://raw.githubusercontent.com/.*/v9.9.9/templates" <<<"$version"
 grep -q "templates: verified against embedded SHA-256 sums" <<<"$version"
 
+# The build leaves the Bun pin alone: same pin as the repo copy, and
+# --version names it with the embedded-sum wording
+pin=$(sed -n 's/^BUN_PINNED_VERSION=//p' "$dist/install.sh")
+assert_equals "built Bun pin" "$(sed -n 's/^BUN_PINNED_VERSION=//p' "$INSTALLER")" "$pin"
+grep -qF "bun: $pin (pinned $pin, verified against embedded SHA-256)" <<<"$version"
+
 # Pinned piped install; the file:// mirror holds this checkout's
 # templates, which match the embedded sums
 log=$test_dir/pinned.log

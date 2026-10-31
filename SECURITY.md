@@ -4,7 +4,8 @@
 
 Only the [latest release][latest] gets security fixes. Older releases get
 none; upgrade to the latest one instead. The `install.sh` on `main` is the
-development channel and may change at any time.
+development channel and may change at any time. The support window and the
+stability promise are in [docs/compatibility.md](docs/compatibility.md).
 
 ## Reporting a vulnerability
 
@@ -19,8 +20,9 @@ vulnerability.
 
 - The installer version, from `bash install.sh --version`.
 - The Ubuntu release (`lsb_release -ds`).
-- Steps to reproduce, and the toggles you used (`SKIP_BUN_APP`,
-  `SKIP_CLOUDFLARE`, `FULL_UPGRADE`).
+- Steps to reproduce, and the toggles and settings you used
+  (`SKIP_BUN_APP`, `SKIP_CLOUDFLARE`, `FULL_UPGRADE`, `SKIP_UPGRADE`,
+  `SKIP_CERTBOT`, `SKIP_UFW`, `BUN_VERSION`).
 - The impact: what an attacker can do, and from where.
 
 ## Response

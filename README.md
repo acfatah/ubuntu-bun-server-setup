@@ -76,6 +76,8 @@ The installer sets up one host for one Bun app. It does not cover:
 - **Host hardening.** SSH hardening, fail2ban and CIS benchmarks belong to your host's baseline image.
 - **Logging and metrics agents.** The data lives in the systemd journal (`journalctl -u bun-app`), the Nginx logs under `/var/log/nginx/`, and the app state in `/var/lib/bun-app`; pick your own agent to ship it.
 
+What the installer does promise, and for how long: [docs/compatibility.md](docs/compatibility.md).
+
 ## Quick Start
 
 Pipe the latest release's installer to bash (runs as root with sudo):
@@ -94,6 +96,11 @@ the file is written.
 > [!NOTE]
 > Release installers exist from 0.5.0 on. Older releases have no
 > `install.sh` asset, so their versioned URLs return 404.
+
+**Versioning.** Releases follow SemVer from 1.0.0. The release notes on
+[GitHub Releases](https://github.com/acfatah/ubuntu-bun-server-setup/releases)
+are the changelog. What stays stable, what each bump means and how long a
+release is supported: [docs/compatibility.md](docs/compatibility.md).
 
 To skip sample app:
 

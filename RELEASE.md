@@ -29,6 +29,8 @@ worktree; it moves to the top of the work tree first.
 make release                 # same as ./release.sh
 ```
 
+- **Bump type:** pick it by [docs/compatibility.md](docs/compatibility.md)
+  ("What each bump means"): a change to its stable surface is a major.
 - **Confirmation:** the script shows the plan (versions, commit, tag,
   remote) and asks `Proceed? [y/N]`.
 - **Without a terminal** (CI, a pipe, `</dev/null`), it never prompts:
