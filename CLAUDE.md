@@ -256,8 +256,9 @@ summary.
   `parse_args` accepts empty, `0`, `false` (off) and `1` for all six; any
   other value exits 1 with `Invalid <NAME>=<value>` before the root check.
   Adding a toggle means extending both loops in `parse_args`, `USAGE`,
-  `print_help`, the header comment and the three toggle loops in
-  `install.bats`.
+  `print_help`, the header comment, the three toggle loops in
+  `install.bats`, the toggle table in `docs/compatibility.md` and the
+  toggle list in `SECURITY.md` "What to include".
 - `FULL_UPGRADE=1` swaps `apt-get upgrade` for `full-upgrade`. The summary
   prints a reboot hint when `/var/run/reboot-required` exists (a note, not
   a problem: the return value is unchanged).
@@ -617,10 +618,17 @@ Re-running must be safe and never clobber user edits:
   `local` vars, colored output via `GREEN`/`YELLOW`/`RED`/`NC`.
 - Commit prefixes seen in history: `fix(scope):`, `refactor:`, `ci:`,
   `release:`, `docs:`, `test(scope):`.
-- User docs: `README.md`, `CONTRIBUTING.md`, `RELEASE.md` and
-  `SECURITY.md`. Vulnerability reports go through GitHub private
-  vulnerability reporting (no email); README "Security" and CONTRIBUTING
-  link to `SECURITY.md`. Keep its supported-versions line (latest release
-  only) true.
+- User docs: `README.md`, `CONTRIBUTING.md`, `RELEASE.md`, `SECURITY.md`
+  and `docs/compatibility.md`. Vulnerability reports go through GitHub
+  private vulnerability reporting (no email); README "Security" and
+  CONTRIBUTING link to `SECURITY.md`. Keep its supported-versions line
+  (latest release only) true, and in step with `docs/compatibility.md`
+  "Support window".
+- `docs/compatibility.md` is the 1.x promise (SemVer from 1.0.0;
+  changelog = GitHub Releases). Adding a toggle, flag, exit code,
+  installed path, kept file or `application.info` key means adding it to
+  its "Stable surface" list; removing or renaming one, or loosening the
+  re-run contract, needs a major. Dropping an EOL Ubuntu is a minor,
+  announced in the notes of the minor before.
 - `.claude/plans/` (plan links and completed copies) and `drafts/` hold
   local working notes; don't commit them.
