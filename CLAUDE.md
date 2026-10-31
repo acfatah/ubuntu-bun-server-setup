@@ -451,7 +451,9 @@ Re-running must be safe and never clobber user edits:
   `not verified (dev channel)`; `--help` as non-root),
   `test_release_build` (`build-installer.sh 9.9.9 /root/...`;
   `SHA256SUMS` and `--version` (`verified against embedded SHA-256
-  sums`); pinned piped install verifies `file://` templates; a tampered
+  sums`, and `bun: <pin> (pinned <pin>, verified against embedded
+  SHA-256)` with the pin read from the built file and equal to the
+  repo's); pinned piped install verifies `file://` templates; a tampered
   `application.info` fails the re-run, old file byte-identical, no temp
   file left; `TEMPLATE_REF=main` warns, skips verification and logs
   `not verified (TEMPLATE_REF differs ...)`),
