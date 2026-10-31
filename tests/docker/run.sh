@@ -16,6 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 UBUNTU_VERSION=${UBUNTU_VERSION:-22.04}
 IMAGE_NAME=${BUN_INSTALLER_TEST_IMAGE:-ubuntu-bun-installer/test-harness:${UBUNTU_VERSION}}
+BOOT_TIMEOUT=120
 
 cleanup_containers=()
 cleanup() {
@@ -57,6 +58,28 @@ start_container() {
     "$IMAGE_NAME" >/dev/null
 }
 
+# Wait until the container's systemd has booted. Until then
+# systemd-tmpfiles-setup may still empty /tmp under the test.
+# Polls is-system-running (it exits non-zero on "degraded", and prints
+# nothing before systemd's bus is up), so check the state it prints. A
+# hung boot fails the test after BOOT_TIMEOUT, not the suite.
+wait_for_boot() {
+  local name=$1
+  local state=''
+  local deadline=$((SECONDS + BOOT_TIMEOUT))
+  while ((SECONDS < deadline)); do
+    state=$(docker exec "$name" systemctl is-system-running 2>/dev/null)
+    case $state in
+      running | degraded) return 0 ;;
+    esac
+    sleep 1
+  done
+  echo -e "${YELLOW}[tests]${NC} ${RED}container did not boot${NC} within ${BOOT_TIMEOUT}s (state: ${state:-none})" >&2
+  # Diagnostics only: the test already fails.
+  docker exec "$name" systemctl list-jobs --no-pager >&2 || true
+  return 1
+}
+
 run_test() {
   local script=$1
   local display=$2
@@ -65,6 +88,12 @@ run_test() {
   echo -e "${YELLOW}[tests]${NC} Starting '$display'..."
   start_container "$name"
   cleanup_containers+=("$name")
+
+  if ! wait_for_boot "$name"; then
+    docker stop "$name" >/dev/null 2>&1 || true
+    echo -e "${YELLOW}[tests]${NC} '$display' ${RED}FAILED${NC}" >&2
+    return 1
+  fi
 
   set +e
   docker exec "$name" bash -lc "cd /workspace && tests/docker/scripts/$script"
