@@ -5,7 +5,9 @@ YELLOW=$(printf '\033[1;33m')
 RED=$(printf '\033[0;31m')
 NC=$(printf '\033[0m')
 INSTALLER="/workspace/install.sh"
-LOG_DIR="/tmp/bun-installer"
+# Not /tmp: boot-time systemd-tmpfiles-setup empties it, and a file
+# written before it ran was gone when the test read it back.
+LOG_DIR="/root/bun-installer-test"
 mkdir -p "$LOG_DIR"
 
 require_root() {

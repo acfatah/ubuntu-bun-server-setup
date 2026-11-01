@@ -206,6 +206,10 @@ The project uses `shellcheck` for linting and `shfmt` for formatting:
 - Keep pull requests focused on a single feature or bug fix
 - Include tests for new functionality
 - Update documentation as needed
+- A breaking change to the stable surface in
+  [docs/compatibility.md](docs/compatibility.md) (toggles, flags, exit
+  codes, installed paths, the re-run contract) needs a major release; say
+  so in the PR. When you add to the surface, list the addition there
 - Reference any related issues in your pull request description
 - Ensure all CI checks pass
 
@@ -222,6 +226,8 @@ ubuntu-bun-server-setup/
 │       ├── e2e.yml            # Docker e2e tests (22.04/24.04)
 │       └── release.yml        # GitHub Release on v* tags
 ├── build-installer.sh         # Pinned release installer (dist/)
+├── docs/
+│   └── compatibility.md       # Stability promise and support window
 ├── install.sh                 # Main installation script (dev channel)
 ├── Makefile                   # Build and test automation
 ├── README.md                  # Project documentation

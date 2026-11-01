@@ -256,8 +256,9 @@ summary.
   `parse_args` accepts empty, `0`, `false` (off) and `1` for all six; any
   other value exits 1 with `Invalid <NAME>=<value>` before the root check.
   Adding a toggle means extending both loops in `parse_args`, `USAGE`,
-  `print_help`, the header comment and the three toggle loops in
-  `install.bats`.
+  `print_help`, the header comment, the three toggle loops in
+  `install.bats`, the toggle table in `docs/compatibility.md` and the
+  toggle list in `SECURITY.md` "What to include".
 - `FULL_UPGRADE=1` swaps `apt-get upgrade` for `full-upgrade`. The summary
   prints a reboot hint when `/var/run/reboot-required` exists (a note, not
   a problem: the return value is unchanged).
@@ -403,7 +404,8 @@ Re-running must be safe and never clobber user edits:
 - `run.sh` builds an Ubuntu systemd image (`UBUNTU_VERSION`, default
   `22.04`, passed as a build arg and used as the image tag), starts one
   privileged container per test with the repo mounted read-only at
-  `/workspace`, and runs `tests/docker/scripts/<test>.sh` inside it.
+  `/workspace`, waits for its boot, and runs
+  `tests/docker/scripts/<test>.sh` inside it.
 - It runs every selected test, even after a failure, then prints
   `N passed, M failed` and each failed label, and exits 1 if any failed.
   `run_test` returns 1 and runs under `||`, so errexit is off inside it;
@@ -450,7 +452,9 @@ Re-running must be safe and never clobber user edits:
   `not verified (dev channel)`; `--help` as non-root),
   `test_release_build` (`build-installer.sh 9.9.9 /root/...`;
   `SHA256SUMS` and `--version` (`verified against embedded SHA-256
-  sums`); pinned piped install verifies `file://` templates; a tampered
+  sums`, and `bun: <pin> (pinned <pin>, verified against embedded
+  SHA-256)` with the pin read from the built file and equal to the
+  repo's); pinned piped install verifies `file://` templates; a tampered
   `application.info` fails the re-run, old file byte-identical, no temp
   file left; `TEMPLATE_REF=main` warns, skips verification and logs
   `not verified (TEMPLATE_REF differs ...)`),
@@ -480,8 +484,13 @@ Re-running must be safe and never clobber user edits:
   `nginx -t` failure fails the unit with the lists byte-identical; the
   drop-in is removed after; re-run under an active old filter skips
   `conf.d`).
-- Gotcha: files a test writes under `/tmp` during an install were gone by
-  assert time; `test_piped_install` keeps its files under `/root`.
+- Gotcha: files a test wrote under `/tmp` vanished. Cause (confirmed):
+  `docker exec` started the test while systemd still booted, and
+  `systemd-tmpfiles-setup` emptied `/tmp` under it. `run.sh` now waits
+  (`wait_for_boot` polls `systemctl is-system-running` for `running` or
+  `degraded`, up to `BOOT_TIMEOUT` 120 s, then lists the pending jobs) and
+  `LOG_DIR` is
+  `/root/bun-installer-test`; keep test files under `/root` anyway.
 - Adding a test: create `scripts/test_x.sh` sourcing `common.sh`
   (`run_installer`, `assert_*` helpers), with a `# Test: <label>` line
   right after the shebang. `run.sh` discovers every `scripts/test_*.sh`;
@@ -609,10 +618,17 @@ Re-running must be safe and never clobber user edits:
   `local` vars, colored output via `GREEN`/`YELLOW`/`RED`/`NC`.
 - Commit prefixes seen in history: `fix(scope):`, `refactor:`, `ci:`,
   `release:`, `docs:`, `test(scope):`.
-- User docs: `README.md`, `CONTRIBUTING.md`, `RELEASE.md` and
-  `SECURITY.md`. Vulnerability reports go through GitHub private
-  vulnerability reporting (no email); README "Security" and CONTRIBUTING
-  link to `SECURITY.md`. Keep its supported-versions line (latest release
-  only) true.
+- User docs: `README.md`, `CONTRIBUTING.md`, `RELEASE.md`, `SECURITY.md`
+  and `docs/compatibility.md`. Vulnerability reports go through GitHub
+  private vulnerability reporting (no email); README "Security" and
+  CONTRIBUTING link to `SECURITY.md`. Keep its supported-versions line
+  (latest release only) true, and in step with `docs/compatibility.md`
+  "Support window".
+- `docs/compatibility.md` is the 1.x promise (SemVer from 1.0.0;
+  changelog = GitHub Releases). Adding a toggle, flag, exit code,
+  installed path, kept file or `application.info` key means adding it to
+  its "Stable surface" list; removing or renaming one, or loosening the
+  re-run contract, needs a major. Dropping an EOL Ubuntu is a minor,
+  announced in the notes of the minor before.
 - `.claude/plans/` (plan links and completed copies) and `drafts/` hold
   local working notes; don't commit them.
