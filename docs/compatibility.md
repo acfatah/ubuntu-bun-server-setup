@@ -90,6 +90,9 @@ Re-running the installer is safe and never clobbers your edits:
   kept, edits included, while it holds the marker line `# Managed by
   ubuntu-bun-server-setup.`. A site without the marker, such as Ubuntu's
   stock one, is replaced (in app mode).
+- **Your app** in `/srv/app` is never overwritten. The sample app is
+  written only when `/srv/app` has neither `server.ts` nor
+  `package.json`.
 - **`INSTANCE_ID`** stays the same across runs.
 - **UFW** is never reset, and a firewall you turned off stays off.
 

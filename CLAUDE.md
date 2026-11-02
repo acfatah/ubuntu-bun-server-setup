@@ -391,7 +391,9 @@ Re-running must be safe and never clobber user edits:
   Used for `bun-app.service`, `/etc/bun-app.env`, the Nginx proxy snippet
   and map file, skip-mode `index.html`, the Cloudflare updater, units,
   `conf.d` file and snippet, `00-custom` MOTD and the logrotate rule. Sample app skipped if
-  `/srv/app/server.ts` exists.
+  `/srv/app/server.ts` **or** `/srv/app/package.json` exists, so a
+  replaced app laid out differently (e.g. Hono in `src/index.ts`) is
+  never overwritten.
 - The Nginx default site is kept only if it carries the marker
   `# Managed by ubuntu-bun-server-setup.` (line 1 of
   `templates/nginx-default.conf`; keep it there). Ubuntu ships a stock
@@ -580,7 +582,11 @@ Re-running must be safe and never clobber user edits:
   probe flags, both flags off, no `/healthz` location → no probe), `run_check` (no info file, no unit and no certbot → Nginx only,
   unit plus dangling `CERTBOT_BIN` link → problem), `parse_args --check`
   exit codes with `LOCK_FILE` untouched, and an executed `--check` never
-  reaching the root check; sourcing runs nothing, executed and piped runs
+  reaching the root check; `setup_sample_app` (`stub_sample_app`:
+  `APP_DIR` and `NGINX_ROOT` in the tmpdir, `download_template` records
+  its calls, `chown` a no-op: an empty dir gets all three templates,
+  `server.ts` or only `package.json` none, the latter byte-identical,
+  `SKIP_BUN_APP=1` none); sourcing runs nothing, executed and piped runs
   still do.
 - `release.bats`: `increment_version`, `version_gt`, `validate_version`
   (leading zeros refused) and `build-installer.sh`'s version check.

@@ -98,7 +98,8 @@ run is in progress` before it changes anything.
   only when missing.
 - `/etc/update-motd.d/00-custom` and `/etc/logrotate.d/bun-installer`.
 - `INSTANCE_ID` in `/etc/environment`: reused, kept to a single line.
-- The sample app, if `/srv/app/server.ts` exists. Hosts installed before
+- The app in `/srv/app`, if it has a `server.ts` or a `package.json`;
+  only an app dir with neither gets the sample. Hosts installed before
   0.3.0 keep a `server.ts` that listens on all interfaces; add
   `hostname: "127.0.0.1"` to `Bun.serve` to match new installs.
 - UFW rules and the default policy. Rules are re-added only if missing, and

@@ -1049,3 +1049,53 @@ one_problem() {
   [[ $output == *"Health check: "* ]]
   [[ $output != *"must be run as root"* ]]
 }
+
+# Points APP_DIR and NGINX_ROOT at the tmpdir; download_template records
+# its calls in TEMPLATE_LOG and chown does nothing, so no root is needed.
+stub_sample_app() {
+  APP_DIR=$BATS_TEST_TMPDIR/app
+  NGINX_ROOT=$BATS_TEST_TMPDIR/dist
+  TEMPLATE_LOG=$BATS_TEST_TMPDIR/templates.log
+  : >"$TEMPLATE_LOG"
+  mkdir -p "$APP_DIR" "$NGINX_ROOT"
+  download_template() { echo "$1 $2" >>"$TEMPLATE_LOG"; }
+  chown() { :; }
+}
+
+@test "setup_sample_app: an empty app dir gets all three templates" {
+  stub_sample_app
+  run setup_sample_app
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$TEMPLATE_LOG")" -eq 3 ]
+  grep -qx "server.ts $APP_DIR/server.ts" "$TEMPLATE_LOG"
+  grep -qx "package.json $APP_DIR/package.json" "$TEMPLATE_LOG"
+  grep -qx "nginx-index-sample.html $NGINX_ROOT/index.html" "$TEMPLATE_LOG"
+}
+
+@test "setup_sample_app: an app dir with server.ts gets none" {
+  stub_sample_app
+  touch "$APP_DIR/server.ts"
+  run setup_sample_app
+  [ "$status" -eq 0 ]
+  [[ $output == *"skipping sample"* ]]
+  [ ! -s "$TEMPLATE_LOG" ]
+}
+
+@test "setup_sample_app: an app dir with only package.json gets none" {
+  stub_sample_app
+  printf '{"name":"mine"}\n' >"$APP_DIR/package.json"
+  cp "$APP_DIR/package.json" "$BATS_TEST_TMPDIR/package.json.orig"
+  run setup_sample_app
+  [ "$status" -eq 0 ]
+  [ ! -s "$TEMPLATE_LOG" ]
+  [ ! -e "$APP_DIR/server.ts" ]
+  cmp "$APP_DIR/package.json" "$BATS_TEST_TMPDIR/package.json.orig"
+}
+
+@test "setup_sample_app: SKIP_BUN_APP=1 gets none" {
+  stub_sample_app
+  SKIP_BUN_APP=1
+  run setup_sample_app
+  [ "$status" -eq 0 ]
+  [ ! -s "$TEMPLATE_LOG" ]
+}
