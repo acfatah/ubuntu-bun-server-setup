@@ -151,8 +151,9 @@ a token means editing both the template and the matching
 Top level: `parse_args` → root check → `take_lock` → `start_log` → `main
 2>&1 | tee -a /var/log/bun-installer.log` (`pipefail` carries `main`'s
 status). `take_lock` holds `flock -n` on fd 9 of `LOCK_FILE`
-(`/run/lock/bun-installer.lock`) for the whole run (`main` and `tee`
-inherit it); a second run exits 1 before the log header. `--help`,
+(`/run/bun-installer.lock`: `/run` is `0755 root`, while in `1777`
+`/run/lock` any user could take it first) for the whole run (`main` and
+`tee` inherit it); a second run exits 1 before the log header. `--help`,
 `--version` and `--check` exit in `parse_args`, so they take no lock. It runs
 only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
 `BASH_SOURCE`), false when sourced, so unit tests can source the script.
@@ -330,7 +331,10 @@ summary.
   `Persistent=true`).
 - The service stays root (the reload goes over D-Bus to systemd) but is
   sandboxed: `ProtectSystem=strict` with `ReadWritePaths=/etc/nginx/cloudflare
-  /run/lock /var/log/nginx`, `ProtectHome`, kernel/namespace protections,
+  /var/log/nginx`, `RuntimeDirectory=cloudflare-update-ips` with
+  `RuntimeDirectoryPreserve=yes` (the lock dir, `0755 root`; kept after
+  the oneshot exits, else systemd would delete it, lock file included,
+  under a manual run still holding it), `ProtectHome`, kernel/namespace protections,
   `MemoryDenyWriteExecute`, `SystemCallFilter=@system-service`,
   `CapabilityBoundingSet=CAP_DAC_OVERRIDE` (`nginx -t` opens the
   `www-data`-owned logs for writing; an empty set fails it). README
@@ -347,7 +351,12 @@ summary.
   hostnames in `set_real_ip_from`, so never loosen the regex.
 - Swap by rename, then `nginx -t`; on failure the old files are restored
   (removed on a first run). `cmp` on both files: no change → no reload.
-  `flock -n` on `/run/lock/cloudflare-update-ips.lock`. Errors go to stderr
+  `flock -n` on `/run/cloudflare-update-ips/lock` (`take_lock` runs
+  `mkdir -p`: a manual run, and the installer's first fetch, happen
+  outside the unit). Never `/run/lock` (`1777`); never
+  `ReadWritePaths=/run` (the root process could write anywhere there).
+  Gotcha: hosts installed before keep the old script and unit (kept
+  files), and so the old `/run/lock` path. Errors go to stderr
   (journal). `CLOUDFLARE_IPS_SOURCE=<dir>` reads `<dir>/ips-v4`/`ips-v6`
   instead of fetching (tests, mirrors).
 - **Kept** (`keep_existing`): updater, both units,
@@ -454,7 +463,8 @@ Re-running must be safe and never clobber user edits:
   works and `--check` lists `Certbot runs`),
   `test_idempotent` (`SKIP_BUN_APP=yes` rejected, `=0` installs, a run
   while the test shell holds the lock exits 1 with the log and
-  `/etc/environment` unchanged, edits survive a re-run (unit, env file, site, snippet, map, Cloudflare updater,
+  `/etc/environment` unchanged and no `/run/lock/bun-installer.lock`,
+  edits survive a re-run (unit, env file, site, snippet, map, Cloudflare updater,
   units, `conf.d` file and snippet, MOTD, logrotate rule), one stable `INSTANCE_ID` in `/etc/environment`, the env file and
   the process, MOTD diversions survive a
   `base-files` reinstall), `test_piped_install` (`bash -s -- SKIP_BUN_APP=1
@@ -487,7 +497,10 @@ Re-running must be safe and never clobber user edits:
   (15 s) and `lock-frontend` (40 s), both holders must exit 0, and it
   succeeds with the `holds the package lists lock; waiting` line),
   `test_cloudflare` (`SKIP_CLOUDFLARE=yes` rejected; files, enabled timer,
-  geo in `nginx -T`; stubbed `CLOUDFLARE_IPS_SOURCE`: HTML body, junk
+  geo in `nginx -T`; the first fetch's manual run made
+  `/run/cloudflare-update-ips/lock` and nothing in `/run/lock`; a run
+  while the test holds that lock exits non-zero with `another run
+  holds`; stubbed `CLOUDFLARE_IPS_SOURCE`: HTML body, junk
   line, short list, empty family and an `nginx -t` failure all exit
   non-zero with the lists byte-identical; good stub applies, repeat says
   `unchanged`; access log shows `CF-Connecting-IP`; the include gives 200
@@ -495,8 +508,10 @@ Re-running must be safe and never clobber user edits:
   `127.0.0.1` (and `[::1]` when `lo` has it) → 200, from the container's
   own IP → 403, `/healthz/x` → 403; through `systemctl start` with a drop-in
   `Environment=CLOUDFLARE_IPS_SOURCE=/srv/cf-stub` (not `/root`:
-  `ProtectHome`), a changed list applies and logs `Nginx reloaded`, an
-  `nginx -t` failure fails the unit with the lists byte-identical; the
+  `ProtectHome`), a changed list applies and logs `Nginx reloaded` (lock
+  dir removed first: the unit recreates it `755 root` with the lock in
+  it, kept after it exits), an `nginx -t` failure fails the unit with
+  the lists byte-identical; the
   drop-in is removed after; re-run under an active old filter skips
   `conf.d`).
 - Gotcha: files a test wrote under `/tmp` vanished. Cause (confirmed):
@@ -552,7 +567,8 @@ Re-running must be safe and never clobber user edits:
   `require_snapd` (`systemctl`, `dpkg-query`, `apt-cache` stubbed: skip
   calls none, installed passes, either unit masked refused, absent with
   a candidate passes, absent with `(none)` or no line refused),
-  `take_lock` free and held (`LOCK_FILE` in `$BATS_TEST_TMPDIR`),
+  the default `LOCK_FILE` (`/run/bun-installer.lock`), `take_lock` free
+  and held (`LOCK_FILE` in `$BATS_TEST_TMPDIR`),
   `previous_ufw_state` and each `configure_ufw` decision (`ufw` and
   `ssh_ports` stubbed as functions, `APP_INFO_FILE` in the tmpdir);
   `health_problems` (`systemctl`, `curl`, `certbot`, `snap`, `is_root`

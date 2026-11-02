@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 
 UPDATER=/usr/local/sbin/cloudflare-update-ips
+UPDATER_LOCK=/run/cloudflare-update-ips/lock
 LISTS=(/etc/nginx/cloudflare/real-ip.conf /etc/nginx/cloudflare/edge-ips.conf)
 SITE=/etc/nginx/sites-available/default
 # Kept out of /tmp, like test_piped_install
@@ -89,6 +90,26 @@ assert_file_contains /etc/nginx/cloudflare/real-ip.conf "^real_ip_header CF-Conn
 nginx -T 2>/dev/null | grep -q 'geo $realip_remote_addr $bun_cloudflare_edge'
 assert_file_contains "$SITE" "^  #include snippets/cloudflare-only.conf;$"
 
+# The first fetch ran the updater by hand: its mkdir -p made the lock
+# dir, and nothing went to world-writable /run/lock (0037)
+echo -e "${YELLOW}[test]${NC} updater lock outside /run/lock"
+assert_file_exists "$UPDATER_LOCK"
+if [[ -e /run/lock/cloudflare-update-ips.lock ]]; then
+  echo "${RED}Assertion failed:${NC} /run/lock/cloudflare-update-ips.lock exists" >&2
+  exit 1
+fi
+
+# A run while another holds the lock is refused
+echo -e "${YELLOW}[test]${NC} a held lock refuses a run"
+exec 8>"$UPDATER_LOCK"
+flock -n 8
+if out=$("$UPDATER" 2>&1); then
+  echo "${RED}Assertion failed:${NC} updater ran while the lock was held" >&2
+  exit 1
+fi
+exec 8>&-
+grep -q "another run holds $UPDATER_LOCK" <<<"$out"
+
 # A bad fetch never touches the lists or Nginx
 write_stub $'<html><body>502 Bad Gateway</body></html>\n' "$V6_GOOD"
 expect_rejected "an HTML body"
@@ -135,9 +156,14 @@ unit_logged() {
 printf '%s' "${V4_GOOD}162.158.0.0/15"$'\n' >"$UNIT_STUB/ips-v4"
 printf '%s' "$V6_GOOD" >"$UNIT_STUB/ips-v6"
 since=$(date '+%Y-%m-%d %H:%M:%S')
+# The unit makes the lock dir itself (RuntimeDirectory=), root-only, and
+# keeps it after the oneshot exits (RuntimeDirectoryPreserve=yes)
+rm -rf "${UPDATER_LOCK%/*}"
 systemctl start cloudflare-update-ips.service
 assert_file_contains /etc/nginx/cloudflare/real-ip.conf "^set_real_ip_from 162.158.0.0/15;$"
 eventually unit_logged "$since" "Nginx reloaded"
+assert_equals "lock dir mode and owner" "755 root" "$(stat -c '%a %U' "${UPDATER_LOCK%/*}")"
+assert_file_exists "$UPDATER_LOCK"
 
 # nginx -t refuses the list: the unit fails and the old files come back
 printf '%s' "${V4_GOOD}999.0.0.0/8"$'\n' >"$UNIT_STUB/ips-v4"

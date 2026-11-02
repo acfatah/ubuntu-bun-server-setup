@@ -305,11 +305,11 @@ Re-running upgrades packages (unless `SKIP_UPGRADE=1`), brings Bun to the
 pinned version (or `BUN_VERSION`), and keeps what you changed. A Bun of
 another version is replaced; the same version is left untouched, so
 `BUN_VERSION=1.3.0` on one run is undone by a later run without it. Each
-kept
-file is reported as `Kept existing <path>`. Only one run at a time: a run
-holds `/run/lock/bun-installer.lock`, and another run started meanwhile
-(say, an operator while cloud-init still installs) exits 1 with `Another
-installer run is in progress` before it changes anything.
+kept file is reported as `Kept existing <path>`. Only one run at a time:
+a run holds `/run/bun-installer.lock` (in root-only `/run`, so no other
+user can take it first), and another run started meanwhile (say, an
+operator while cloud-init still installs) exits 1 with `Another installer
+run is in progress` before it changes anything.
 
 - `/etc/systemd/system/bun-app.service` and `/etc/bun-app.env`.
 - `/etc/nginx/sites-available/default`, while its first line is the
@@ -618,7 +618,8 @@ through systemd, which wants uid 0. The unit confines it instead
 | --- | --- |
 | `NoNewPrivileges=yes`, `PrivateTmp=yes` | Same as for `bun-app` above |
 | `ProtectSystem=strict` | Writing anywhere except `ReadWritePaths=` |
-| `ReadWritePaths=/etc/nginx/cloudflare /run/lock /var/log/nginx` | Nothing: the lists, the updater's lock, and the logs `nginx -t` opens for writing |
+| `ReadWritePaths=/etc/nginx/cloudflare /var/log/nginx` | Nothing: the lists, and the logs `nginx -t` opens for writing |
+| `RuntimeDirectory=cloudflare-update-ips`, `RuntimeDirectoryPreserve=yes` | Nothing: holds the updater's lock in `/run/cloudflare-update-ips` (`0755 root`), kept until reboot so a manual run's lock is never removed under it |
 | `ProtectHome=yes` | Reading `/home`, `/root`, `/run/user` |
 | `PrivateDevices=yes` | Access to physical devices |
 | `ProtectKernelTunables=yes`, `ProtectKernelModules=yes`, `ProtectKernelLogs=yes` | Sysctl writes, module loading, `dmesg` |
@@ -638,6 +639,12 @@ through systemd, which wants uid 0. The unit confines it instead
   unit. Copy the `[Service]` lines from
   `templates/cloudflare-update-ips.service` into
   `sudo systemctl edit cloudflare-update-ips.service` to apply them.
+- **Gotcha: older hosts keep the old lock.** The updater script and its
+  unit are kept files, so hosts installed before keep
+  `/run/lock/cloudflare-update-ips.lock`, which any local user can take
+  first and so stop the updates. Replace both
+  (`/usr/local/sbin/cloudflare-update-ips` and the unit) with the
+  templates to move it.
 
 ### Customising the sandbox
 
