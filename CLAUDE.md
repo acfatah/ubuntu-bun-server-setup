@@ -241,8 +241,9 @@ summary.
 ### Service user and sandbox
 
 - `bun-app.service` runs as `bun-app` (nologin) with a strict sandbox
-  (`ProtectSystem=strict`, empty `CapabilityBoundingSet`, ...). README
-  "Security" documents every directive; keep the two in sync.
+  (`ProtectSystem=strict`, empty `CapabilityBoundingSet`, ...).
+  `docs/security.md` "Sandboxing" documents every directive; keep the two
+  in sync.
 - `EnvironmentFile=-/etc/bun-app.env` (`INSTANCE_ID`, `PORT`; root `0600`,
   written by `write_app_env`) replaces a placeholder in the unit. The unit
   waits for `network-online.target`.
@@ -252,8 +253,9 @@ summary.
 - Never add `MemoryDenyWriteExecute`: Bun's JIT needs W+X memory and the
   unit crash-loops.
 - Limits block: `TimeoutStopSec=30`, `LimitNOFILE=65536`, commented
-  `#MemoryMax=` (set in a drop-in). README "Limits" lists them. Kept units
-  on existing hosts never get them (README says to use a drop-in).
+  `#MemoryMax=` (set in a drop-in). `docs/security.md` "Limits" lists
+  them. Kept units on existing hosts never get them (that page says to
+  use a drop-in).
 - `install_bun` probes `/usr/local/bin/bun` as `nobody`
   (`runuser -u nobody`); a Bun that fails the probe (a legacy symlink into
   `/root/.bun`) is replaced like one of another version.
@@ -337,8 +339,9 @@ summary.
   under a manual run still holding it), `ProtectHome`, kernel/namespace protections,
   `MemoryDenyWriteExecute`, `SystemCallFilter=@system-service`,
   `CapabilityBoundingSet=CAP_DAC_OVERRIDE` (`nginx -t` opens the
-  `www-data`-owned logs for writing; an empty set fails it). README
-  "Cloudflare updater sandbox" lists every directive; keep them in sync.
+  `www-data`-owned logs for writing; an empty set fails it).
+  `docs/security.md` "Cloudflare updater sandbox" lists every directive;
+  keep them in sync.
   Exposure 9.0 → 2.2 on 22.04. Gotcha: `/root` and `/home` are hidden, so a
   `CLOUDFLARE_IPS_SOURCE` there works from a shell but not under the unit.
 - It writes the **generated** `/etc/nginx/cloudflare/real-ip.conf`
@@ -667,9 +670,17 @@ Re-running must be safe and never clobber user edits:
 - Commit prefixes seen in history: `fix(scope):`, `refactor:`, `ci:`,
   `release:`, `docs:`, `test(scope):`.
 - User docs: `README.md`, `CONTRIBUTING.md`, `RELEASE.md`, `SECURITY.md`
-  and `docs/compatibility.md`. Vulnerability reports go through GitHub
-  private vulnerability reporting (no email); README "Security" and
-  CONTRIBUTING link to `SECURITY.md`. Keep its supported-versions line
+  and `docs/*.md` (`docs/README.md` indexes them). Vulnerability reports
+  go through GitHub private vulnerability reporting (no email); README
+  "Security", `docs/security.md` and CONTRIBUTING link to `SECURITY.md`.
+- README is the overview (intro, Software Included, Out of scope, Quick
+  Start, Documentation index); operator depth lives in `docs/`, one
+  source of truth. Its stub headings `Health check`, `Re-running the
+  installer` (naming Upgrading from 0.3.x / 0.4.x), `Cloudflare` and
+  `Security` must stay: kept host files link them (the updater unit's
+  `Documentation=...#cloudflare`, `nginx-default.conf` comments, the
+  installer's 0.4.x note), and so does `docs/compatibility.md`
+  (`#out-of-scope`). Contributor test docs live in CONTRIBUTING.md. Keep its supported-versions line
   (latest release only) true, and in step with `docs/compatibility.md`
   "Support window".
 - `docs/compatibility.md` is the 1.x promise (SemVer from 1.0.0;

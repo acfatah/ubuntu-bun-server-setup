@@ -50,8 +50,9 @@ argument:
 - **`BUN_VERSION`** (variable or argument): `X.Y.Z` or `latest`; the
   default is the release's pinned Bun.
 - **Environment only:** `TEMPLATE_REF`, `TEMPLATE_BASE_URL` and
-  `BUN_DOWNLOAD_BASE_URL`, with the accepted forms the README describes
-  (`https://` or `file://` URLs only).
+  `BUN_DOWNLOAD_BASE_URL`, with the accepted forms
+  [Installation](installation.md#template-source) describes (`https://`
+  or `file://` URLs only).
 - **Cloudflare updater:** `CLOUDFLARE_IPS_SOURCE=<dir>` reads
   `<dir>/ips-v4` and `<dir>/ips-v6` instead of fetching.
 
@@ -104,7 +105,7 @@ These may change in any release, including a patch:
 - **Wording** of output, the summary and the log. Scripts should rely on
   exit codes, not on text.
 - **The sample app** and the content of templates for new installs.
-  Existing hosts keep their kept files; see the README's
+  Existing hosts keep their kept files; see Operations,
   [Re-running the installer][rerun].
 - **The pinned Bun version,** within Bun's current major.
 - **Package lists** and which apt packages get installed.
@@ -145,5 +146,5 @@ What the installer does not cover is listed in the README's
 [Out of scope][out-of-scope].
 
 [releases]: https://github.com/acfatah/ubuntu-bun-server-setup/releases
-[rerun]: ../README.md#re-running-the-installer
+[rerun]: operations.md#re-running-the-installer
 [out-of-scope]: ../README.md#out-of-scope

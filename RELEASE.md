@@ -129,8 +129,8 @@ it. Bump it in a normal pull request, before a release:
    sha256sum bun-linux-*.zip
    ```
 
-4. Update the version named in `README.md` (Software Included, Bun
-   version).
+4. Update the version named in `README.md` (Software Included) and
+   `docs/installation.md` (Bun version).
 5. Run `make test-unit` and `make test`; `test_default` and
    `test_bun_pin` install the new pin. `test_bun_pin` uses 1.4.3 as
    "another version": keep it an existing release other than the pin.
