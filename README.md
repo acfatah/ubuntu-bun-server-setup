@@ -1,15 +1,24 @@
-# Ubuntu Bun Server Setup
+<div align="center">
+  <a href="https://ubuntu.com"
+    ><img width="100" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/ubuntu.png" alt="Ubuntu" title="Ubuntu"/></a>
+  <a href="https://bun.sh"
+    ><img width="100" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/bun_js.png" alt="Bun.js" title="Bun.js"/></a>
+  <a href="https://www.typescriptlang.org"
+    ><img width="100" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/typescript.png" alt="TypeScript" title="TypeScript"/></a>
 
-<p>
-  <a href="./LICENSE">
-    <img alt="GitHub" src="https://img.shields.io/github/license/acfatah/ubuntu-bun-server-setup?style=flat-square"></a>
-  <a href="https://github.com/acfatah/ubuntu-bun-server-setup/releases">
-    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/acfatah/ubuntu-bun-server-setup"></a>
-  <a href="https://github.com/acfatah/ubuntu-bun-server-setup/commits/main">
-    <img
-      alt="GitHub last commit (by committer)"
-      src="https://img.shields.io/github/last-commit/acfatah/ubuntu-bun-server-setup?display_timestamp=committer&style=flat-square"></a>
-</p>
+  <h1>Ubuntu Bun Server Setup</h1>
+
+  <p>
+    <a href="./LICENSE">
+      <img alt="GitHub" src="https://img.shields.io/github/license/acfatah/ubuntu-bun-server-setup?style=flat-square"></a>
+    <a href="https://github.com/acfatah/ubuntu-bun-server-setup/releases">
+      <img alt="GitHub Release" src="https://img.shields.io/github/v/release/acfatah/ubuntu-bun-server-setup?style=flat-square"></a>
+    <a href="https://github.com/acfatah/ubuntu-bun-server-setup/commits/main">
+      <img
+        alt="GitHub last commit (by committer)"
+        src="https://img.shields.io/github/last-commit/acfatah/ubuntu-bun-server-setup?display_timestamp=committer&style=flat-square"></a>
+  </p>
+</div>
 
 Bootstrap an opinionated, production-ready Bun application environment for Ubuntu.
 
