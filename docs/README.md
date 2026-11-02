@@ -8,7 +8,9 @@ first install command are in the [README](../README.md).
 - [Configuration](configuration.md): environment toggles and
   `KEY=VALUE` arguments.
 - [Operations](operations.md): health check, logs, re-running the
-  installer, upgrading from older releases, deploying your own app.
+  installer, upgrading from older releases.
+- [Your app](app.md): what the host expects from an app, extending
+  or replacing the sample, frontend plus API, deploying with rollback.
 - [Cloudflare](cloudflare.md): real client IP, "Cloudflare only", the IP
   list updater, removing it.
 - [Security](security.md): service user, environment file, filesystem

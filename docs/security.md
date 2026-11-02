@@ -61,7 +61,8 @@ Code and state are kept apart:
   ```
 
 - The data outlives code deploys: wiping and replacing `/srv/app` never
-  touches `/var/lib/bun-app`. Back up that one directory.
+  touches `/var/lib/bun-app`. Back up that one directory. See [Your
+  app](app.md) for deploy recipes that keep it.
 
 ## Sandboxing
 
@@ -197,7 +198,8 @@ systemd-analyze security bun-app
 ## Gotchas
 
 - Deploy as root: copy code into `/srv/app` and run `bun install` there as
-  root. The service only needs to read it.
+  root. The service only needs to read it. [Your app](app.md#deploying)
+  has the full recipe.
 - `/srv/app/data` is a symlink. `rm -rf /srv/app` removes the link but not
   the data; re-run the installer (or `ln -s /var/lib/bun-app
   /srv/app/data`) to restore it. Beware `rm -rf /srv/app/data/`: the

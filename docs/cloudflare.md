@@ -107,6 +107,6 @@ Then run `sudo nginx -t && sudo systemctl reload nginx`. Pass
 
 <div align="center">
 
-[← Operations](operations.md) · [Documentation index](README.md) · [Security →](security.md)
+[← Your app](app.md) · [Documentation index](README.md) · [Security →](security.md)
 
 </div>

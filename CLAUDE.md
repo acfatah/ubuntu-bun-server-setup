@@ -693,6 +693,11 @@ Re-running must be safe and never clobber user edits:
   and `docs/*.md` (`docs/README.md` indexes them). Vulnerability reports
   go through GitHub private vulnerability reporting (no email); README
   "Security", `docs/security.md` and CONTRIBUTING link to `SECURITY.md`.
+- `docs/app.md` ("Your app") owns everything about running your own app
+  (contract, recipes, deploys, port, WebSockets, multiple apps); other
+  pages link to it. Its examples live in `docs/examples/` (`deploy.sh`,
+  `hono/`) and `test_custom_app` runs them, so keep the page's quoted
+  code in step with those files.
 - README is the overview (intro, Software Included, Out of scope, Quick
   Start, Documentation index); operator depth lives in `docs/`, one
   source of truth. Its stub headings `Health check`, `Re-running the

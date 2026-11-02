@@ -1,8 +1,8 @@
 # Operations
 
 Running an installed host: health checks and logs, re-running the
-installer and what it keeps, upgrading from older releases, and
-deploying your own app.
+installer and what it keeps, and upgrading from older releases. To
+deploy your own app, see [Your app](app.md).
 
 ## Health check
 
@@ -13,7 +13,8 @@ does not flood the log.
 
 - **Gotcha: your own app must answer `/healthz` too.** Otherwise
   `--check` below reports the probe as failed, and so does the summary of
-  a re-run, which then exits non-zero. Return `200` with the body `ok`.
+  a re-run, which then exits non-zero. Return `200` with the body `ok`
+  (see [What the host expects](app.md#what-the-host-expects)).
 - **Monitor through the public hostname,** e.g.
   `https://example.com/healthz`. That checks DNS, TLS, Cloudflare (if used),
   Nginx and Bun in one request.
@@ -165,96 +166,16 @@ for f in 00-header 10-help-text; do
 done
 ```
 
-## Notes
+## Your own app
 
-- The default Bun app runs from `/srv/app` and executes `bun run start`.
-- Static files are served by Nginx from `/var/www/app/dist` (or `/var/www/html` if 
-  sample app is skipped). Place your built assets in that directory and set the correct 
-  permissions:
-
-  ```bash
-  sudo chown -R www-data:www-data /var/www/app/dist
-  sudo find /var/www/app/dist -type d -exec chmod 755 {} +
-  sudo find /var/www/app/dist -type f -exec chmod 644 {} +
-  ```
-
-- Static files are served at `/`; anything not found falls back to Bun.
-  `/api/` always goes to Bun with the full URI (`/api/x` arrives as
-  `/api/x`). Both share `/etc/nginx/snippets/bun-proxy.conf`.
-- To use your own Bun app, replace `/srv/app` contents (keep the `data`
-  symlink). Change `ExecStart` or other settings with
-  `sudo systemctl edit bun-app` rather than editing the unit file (see
-  [Customising the sandbox](security.md#customising-the-sandbox)).
-- If you skip the default app, set up your own Bun application and systemd
-  unit file. Create the service user first
-  (`sudo useradd --system --user-group --home-dir /var/lib/bun-app
-  --no-create-home --shell /usr/sbin/nologin bun-app`). Example, identical
-  to the installed unit:
-
-  ```ini
-  [Unit]
-  Description=Bun App
-  Wants=network-online.target
-  After=network-online.target
-
-  [Service]
-  Type=simple
-  User=bun-app
-  Group=bun-app
-  WorkingDirectory=/srv/app
-  ExecStart=/usr/local/bin/bun run start
-  Restart=always
-  RestartSec=3
-  Environment=NODE_ENV=production
-  Environment=XDG_CACHE_HOME=/var/cache/bun-app
-  # INSTANCE_ID, PORT and any secrets; root-only, kept on re-run
-  EnvironmentFile=-/etc/bun-app.env
-  StandardOutput=journal
-  StandardError=journal
-  SyslogIdentifier=bun-app
-
-  # Writable dirs, created and chowned to User= by systemd.
-  # /srv/app/data is a symlink to the state dir.
-  StateDirectory=bun-app
-  StateDirectoryMode=0750
-  CacheDirectory=bun-app
-  UMask=0027
-
-  # Sandboxing. Score with: systemd-analyze security bun-app
-  # Loosen per host with `systemctl edit bun-app` (drop-ins survive re-runs).
-  NoNewPrivileges=yes
-  ProtectSystem=strict
-  ProtectHome=yes
-  PrivateTmp=yes
-  PrivateDevices=yes
-  ProtectKernelTunables=yes
-  ProtectKernelModules=yes
-  ProtectKernelLogs=yes
-  ProtectControlGroups=yes
-  ProtectClock=yes
-  ProtectHostname=yes
-  RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
-  RestrictNamespaces=yes
-  RestrictRealtime=yes
-  RestrictSUIDSGID=yes
-  LockPersonality=yes
-  CapabilityBoundingSet=
-  SystemCallArchitectures=native
-  # No MemoryDenyWriteExecute: Bun's JIT needs writable+executable memory.
-
-  # Limits. Override with `systemctl edit bun-app`, e.g. MemoryMax=512M
-  TimeoutStopSec=30
-  LimitNOFILE=65536
-  #MemoryMax=
-
-  [Install]
-  WantedBy=multi-user.target
-  ```
+Extending or replacing the sample app, deploying, the port and
+environment, and running your own stack with `SKIP_BUN_APP=1` are covered
+in [Your app](app.md).
 
 ---
 
 <div align="center">
 
-[← Configuration](configuration.md) · [Documentation index](README.md) · [Cloudflare →](cloudflare.md)
+[← Configuration](configuration.md) · [Documentation index](README.md) · [Your app →](app.md)
 
 </div>

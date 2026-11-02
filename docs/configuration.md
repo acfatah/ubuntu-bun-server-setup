@@ -13,9 +13,9 @@ Pass toggles as environment variables or as `KEY=VALUE` arguments to
   for Nginx static root. Ubuntu's stock Nginx site is kept as is: there is
   no `/api/` proxy, no Bun fallback and no `cloudflare-only.conf` include
   line (real client IP still applies; see [Cloudflare](cloudflare.md)).
-  You are now responsible for building/copying your own Bun-generated HTML assets into `/var/www/html`.
-
-  Build steps typically look like `bun install && bun run build` from your project and then `cp -R dist/* /var/www/html` before managing your own Bun service.
+  You then serve your own files from `/var/www/html` and run your own
+  app; see [Bring your own
+  stack](app.md#bring-your-own-stack-skip_bun_app1).
 
 - `SKIP_CLOUDFLARE=1` — Do not install the Cloudflare updater, its timer
   or its Nginx files, and do not fetch Cloudflare's IP ranges. See

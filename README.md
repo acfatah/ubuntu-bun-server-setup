@@ -133,7 +133,9 @@ Operator documentation lives in [docs/](docs/README.md):
 - [Configuration](docs/configuration.md): environment toggles and
   `KEY=VALUE` arguments.
 - [Operations](docs/operations.md): health check, logs, re-running the
-  installer, upgrading from older releases, deploying your own app.
+  installer, upgrading from older releases.
+- [Your app](docs/app.md): what the host expects from an app, extending
+  or replacing the sample, frontend plus API, deploying with rollback.
 - [Cloudflare](docs/cloudflare.md): real client IP, "Cloudflare only",
   the IP list updater, removing it.
 - [Security](docs/security.md): service user, environment file,
