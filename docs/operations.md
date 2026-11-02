@@ -249,3 +249,11 @@ done
   [Install]
   WantedBy=multi-user.target
   ```
+
+---
+
+<div align="center">
+
+[← Configuration](configuration.md) · [Documentation index](README.md) · [Cloudflare →](cloudflare.md)
+
+</div>

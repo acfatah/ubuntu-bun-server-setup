@@ -129,3 +129,11 @@ GitHub.
 sudo bash install.sh BUN_VERSION=1.3.0
 sudo BUN_VERSION=latest bash install.sh
 ```
+
+---
+
+<div align="center">
+
+[Documentation index](README.md) · [Configuration →](configuration.md)
+
+</div>

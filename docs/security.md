@@ -209,3 +209,11 @@ systemd-analyze security bun-app
   permissions as the service user, run a single command:
   `sudo -u bun-app touch /srv/app/data/probe`. This runs outside the
   sandbox, so it checks file ownership only, not `ProtectSystem` rules.
+
+---
+
+<div align="center">
+
+[← Cloudflare](cloudflare.md) · [Documentation index](README.md) · [Compatibility →](compatibility.md)
+
+</div>

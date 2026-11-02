@@ -148,3 +148,11 @@ What the installer does not cover is listed in the README's
 [releases]: https://github.com/acfatah/ubuntu-bun-server-setup/releases
 [rerun]: operations.md#re-running-the-installer
 [out-of-scope]: ../README.md#out-of-scope
+
+---
+
+<div align="center">
+
+[← Security](security.md) · [Documentation index](README.md)
+
+</div>

@@ -102,3 +102,11 @@ sudo systemctl daemon-reload
 
 Then run `sudo nginx -t && sudo systemctl reload nginx`. Pass
 `SKIP_CLOUDFLARE=1` on later re-runs, or the installer puts it back.
+
+---
+
+<div align="center">
+
+[← Operations](operations.md) · [Documentation index](README.md) · [Security →](security.md)
+
+</div>
