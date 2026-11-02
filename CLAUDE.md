@@ -29,8 +29,8 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
 ```
 
 - Lint and format cover `install.sh`, `release.sh`, `build-installer.sh`,
-  `tests/docker/**/*.sh`, `tests/release/*.sh`, `templates/*.sh` and
-  `tests/unit/*.bats` (`SHELL_FILES` in `Makefile`; both tools detect
+  `tests/docker/**/*.sh`, `tests/release/*.sh`, `templates/*.sh`,
+  `docs/examples/*.sh` and `tests/unit/*.bats` (`SHELL_FILES` in `Makefile`; both tools detect
   bats from the shebang or extension).
 - Style lives in `.editorconfig` (2-space, `-bn -ci`, for `*.sh` and
   `*.bats`); shfmt reads it only
@@ -518,7 +518,21 @@ Re-running must be safe and never clobber user edits:
   it, kept after it exits), an `nginx -t` failure fails the unit with
   the lists byte-identical; the
   drop-in is removed after; re-run under an active old filter skips
-  `conf.d`).
+  `conf.d`),
+  `test_custom_app` (runs what `docs/app.md` shows: every installer run
+  uses `SKIP_UPGRADE=1 SKIP_CERTBOT=1`; `/srv/app` emptied but `data`,
+  `docs/examples/hono` copied in, `bun install --frozen-lockfile
+  --production` as root: `/healthz`, `/api/x` JSON, SQLite visit counter
+  in the state dir; a re-run keeps `package.json` (`cmp`) and writes no
+  `server.ts`, `--check` passes; static `dist/` beside `/api/`, one
+  `Cache-Control` on `/assets/`, an unknown path falls back to Hono; then
+  `openssh-server` + `rsync`, `tester` with passwordless sudo and root's
+  key: `docs/examples/deploy.sh tester@localhost` serves a changed
+  message with the counter kept and root-owned code; `--release` onto a
+  plain dir refuses with the `0-initial` hint, the hint's migration, two
+  releases (`KEEP=2` prunes `0-initial`), `data` resolves to
+  `/var/lib/bun-app`, a re-run keeps the link, `--rollback` serves the
+  previous release).
 - Gotcha: files a test wrote under `/tmp` vanished. Cause (confirmed):
   `docker exec` started the test while systemd still booted, and
   `systemd-tmpfiles-setup` emptied `/tmp` under it. `run.sh` now waits

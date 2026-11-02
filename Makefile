@@ -8,7 +8,7 @@ ACTIONLINT ?= actionlint
 BATS ?= bats
 
 SHELL_FILES = install.sh release.sh build-installer.sh \
-	$(wildcard tests/docker/*.sh tests/docker/scripts/*.sh tests/release/*.sh templates/*.sh tests/unit/*.bats)
+	$(wildcard tests/docker/*.sh tests/docker/scripts/*.sh tests/release/*.sh templates/*.sh docs/examples/*.sh tests/unit/*.bats)
 TEST_RUNNER = tests/docker/run.sh
 
 .PHONY: lint lint-actions format format-check test test-unit test-release dist release
