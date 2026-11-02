@@ -32,18 +32,16 @@ jobs:
       - name: Build pinned installer
         run: ./build-installer.sh "${GITHUB_REF_NAME#v}" dist
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: latest
-
-      - name: Generate Changelog
-        run: bunx --bun changelogithub@15.0.5 --no-emoji
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload installer assets
-        run: gh release upload "$GITHUB_REF_NAME" dist/install.sh dist/SHA256SUMS --clobber
+      # gh is preinstalled on the runner: no package is downloaded here.
+      # Create only when missing, so re-running a failed job is safe;
+      # the upload always runs and replaces the assets.
+      - name: Create release and upload installer
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" dist/install.sh dist/SHA256SUMS --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}

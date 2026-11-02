@@ -615,8 +615,10 @@ Re-running must be safe and never clobber user edits:
   touches only `**.md`, `LICENSE` or `.vscode/**`.
 - Both cancel superseded PR runs. Runners are pinned to `ubuntu-24.04`.
 - Actions are pinned to commit SHAs with a `# vX.Y.Z` comment;
-  `dependabot.yml` bumps those weekly, but not the tool versions or
-  `changelogithub`.
+  `dependabot.yml` bumps those weekly, but not the tool versions.
+- `.github/release.yml` configures the notes of `gh release create
+  --generate-notes`: it excludes PRs by `dependabot[bot]` (PRs here
+  carry no labels, so no categories).
 
 ## Release
 
@@ -642,12 +644,16 @@ Re-running must be safe and never clobber user edits:
   executed, not sourced, so `tests/unit/release.bats` tests
   `increment_version`, `version_gt` and `validate_version`.
 - `.github/workflows/release.yml` fails if the tag is not an ancestor of
-  `origin/main`; it then generates notes via `changelogithub` (pinned in
-  the workflow).
-- The workflow also checks `VERSION` equals the tag without `v`, runs
-  `./build-installer.sh` before `changelogithub` creates the release,
-  then `gh release upload`s `dist/install.sh` and `dist/SHA256SUMS`
-  (`--clobber`). README's main install URL is
+  `origin/main` or `VERSION` differs from the tag without `v`, then runs
+  `./build-installer.sh` (before the release exists, so a failed build
+  publishes nothing).
+- It then creates the release with `gh release create --verify-tag
+  --generate-notes` only when `gh release view` fails, and always runs
+  `gh release upload` of `dist/install.sh` and `dist/SHA256SUMS`
+  (`--clobber`), so a re-run of a failed job is safe. No third-party
+  code runs with the `contents: write` token (`gh` is preinstalled).
+  `--verify-tag` only checks the tag exists; the merge-base check stays.
+  README's main install URL is
   `releases/latest/download/install.sh`; assets exist from 0.5.0 on.
 - `dist/` is git-ignored output of `build-installer.sh`.
 - `make release` has no args; it just runs `./release.sh` (interactive).
