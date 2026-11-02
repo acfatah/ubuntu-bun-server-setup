@@ -1,0 +1,5 @@
+# Notes for `gh release create --generate-notes` (release workflow).
+changelog:
+  exclude:
+    authors:
+      - dependabot[bot]
