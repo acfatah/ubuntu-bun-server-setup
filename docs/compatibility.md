@@ -77,7 +77,7 @@ argument:
   line in `/etc/environment`.
 - **Installer:** the log `/var/log/bun-installer.log`, its logrotate rule
   `/etc/logrotate.d/bun-installer`, and the lock
-  `/run/lock/bun-installer.lock`.
+  `/run/bun-installer.lock`.
 
 ### Re-run contract
 

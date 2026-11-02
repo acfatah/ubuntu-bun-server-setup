@@ -54,7 +54,9 @@ baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e  bun-linux-aarc
 APP_DIR=/srv/app
 NGINX_ROOT=/var/www/app/dist
 LOG_FILE=/var/log/bun-installer.log
-LOCK_FILE=/run/lock/bun-installer.lock
+# In /run (0755 root), not /run/lock (1777): there any local user could
+# create the file first and hold the lock, refusing every run.
+LOCK_FILE=/run/bun-installer.lock
 OS_RELEASE=/etc/os-release
 APP_INFO_FILE=/var/lib/app-info/application.info
 NGINX_SITE=/etc/nginx/sites-available/default

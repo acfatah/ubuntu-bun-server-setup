@@ -17,7 +17,7 @@ set -euo pipefail
 # ==============================================================================
 
 LIST_DIR=/etc/nginx/cloudflare
-LOCK_FILE=/run/lock/cloudflare-update-ips.lock
+LOCK_FILE=/run/cloudflare-update-ips/lock
 SOURCE_URL=https://www.cloudflare.com
 MIN_RANGES=8
 FILES=(real-ip.conf edge-ips.conf)
@@ -52,6 +52,9 @@ parse_args() {
 }
 
 # Holds an exclusive lock, so a manual run and the timer never overlap.
+# Under systemd the unit's RuntimeDirectory= makes the root-only lock dir;
+# mkdir -p covers a manual run (and the installer's first fetch). Not in
+# /run/lock (1777), where any local user could take the lock first.
 take_lock() {
   mkdir -p "$(dirname "$LOCK_FILE")"
   exec 9>"$LOCK_FILE"

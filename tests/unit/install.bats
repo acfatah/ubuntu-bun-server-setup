@@ -773,6 +773,10 @@ stub_snapd() {
   done
 }
 
+@test "LOCK_FILE: defaults to root-only /run, not world-writable /run/lock" {
+  [ "$LOCK_FILE" = /run/bun-installer.lock ]
+}
+
 @test "take_lock: succeeds while the lock is free" {
   LOCK_FILE=$BATS_TEST_TMPDIR/lock
   run take_lock

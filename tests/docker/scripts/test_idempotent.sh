@@ -46,7 +46,7 @@ done
 # A run while another holds the lock fails and changes nothing: the
 # stale INSTANCE_ID line stays and the log gets no header
 echo -e "${YELLOW}[test]${NC} a run is refused while the lock is held"
-lock=/run/lock/bun-installer.lock
+lock=/run/bun-installer.lock
 log_lines=$(wc -l </var/log/bun-installer.log)
 env_before=$(sha256sum </etc/environment)
 exec 8>"$lock"
@@ -59,6 +59,11 @@ exec 8>&-
 grep -q "Another installer run is in progress" <<<"$out"
 assert_equals "log lines after a refused run" "$log_lines" "$(wc -l </var/log/bun-installer.log)"
 assert_equals "/etc/environment after a refused run" "$env_before" "$(sha256sum </etc/environment)"
+# Nothing in world-writable /run/lock (0037)
+if [[ -e /run/lock/bun-installer.lock ]]; then
+  echo "${RED}Assertion failed:${NC} /run/lock/bun-installer.lock exists" >&2
+  exit 1
+fi
 
 # Second run (lock released) must keep all of it
 # shellcheck disable=SC2119 # default install: no env overrides

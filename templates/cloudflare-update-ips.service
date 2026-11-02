@@ -12,8 +12,13 @@ ExecStart=/usr/local/sbin/cloudflare-update-ips
 # Stays root: the Nginx reload goes through systemd, which wants uid 0.
 NoNewPrivileges=yes
 ProtectSystem=strict
-# Lists, its lock, and the logs nginx -t opens for writing
-ReadWritePaths=/etc/nginx/cloudflare /run/lock /var/log/nginx
+# Lists and the logs nginx -t opens for writing
+ReadWritePaths=/etc/nginx/cloudflare /var/log/nginx
+# Lock dir /run/cloudflare-update-ips (0755 root), writable inside the
+# sandbox. Kept across runs, so a manual run's lock is never deleted
+# under it when the unit stops.
+RuntimeDirectory=cloudflare-update-ips
+RuntimeDirectoryPreserve=yes
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
