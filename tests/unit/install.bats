@@ -548,19 +548,92 @@ fake_os_release() {
 }
 
 # Stubs apt-get and sleep for apt_update: apt-get fails its first $1 calls,
-# and both log their arguments, one call per line.
+# and both log their arguments, one call per line. With APT_LOCKED=N
+# (default 0), the first N calls fail with apt's lists-lock message
+# instead, before the APT_FAILS count applies.
 stub_apt() {
   APT_FAILS=$1
+  APT_LOCKED=${APT_LOCKED:-0}
   APT_LOG=$BATS_TEST_TMPDIR/apt-get
   SLEEP_LOG=$BATS_TEST_TMPDIR/sleep
   : >"$APT_LOG"
   : >"$SLEEP_LOG"
   apt-get() {
     echo "$*" >>"$APT_LOG"
+    if [ "$(wc -l <"$APT_LOG")" -le "$APT_LOCKED" ]; then
+      echo "E: Could not get lock /var/lib/apt/lists/lock. It is held by process 42 (apt-get)" >&2
+      return 100
+    fi
     [ "$(wc -l <"$APT_LOG")" -gt "$APT_FAILS" ]
   }
   sleep() { echo "$*" >>"$SLEEP_LOG"; }
   APT_UPDATE_DELAY=7
+  APT_LOCK_POLL=5
+}
+
+# True when every logged apt-get call passes the lock timeout before its
+# verb: right after apt-get, ahead of -qqy.
+lock_timeout_before_verb() {
+  local line
+  while IFS= read -r line; do
+    [[ $line == "-o DPkg::Lock::Timeout=600 -qqy "* ]] || return 1
+  done <"$APT_LOG"
+  [ -s "$APT_LOG" ]
+}
+
+@test "apt-get calls: DPkg::Lock::Timeout=600 comes before the verb" {
+  stub_apt 0
+  run apt_update
+  [ "$status" -eq 0 ]
+  lock_timeout_before_verb
+  run upgrade_packages
+  [ "$status" -eq 0 ]
+  FULL_UPGRADE=1
+  run upgrade_packages
+  [ "$status" -eq 0 ]
+  run install_base_packages
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$APT_LOG")" -eq 4 ]
+  lock_timeout_before_verb
+}
+
+@test "apt-get calls: every apt-get line in install.sh passes APT_OPTS" {
+  local lines
+  # A command position: line start, after "$(", or after "LC_ALL=C "
+  # (echo text such as "(apt-get update)" does not match)
+  lines=$(grep -E '(^[[:space:]]*|\$\(|LC_ALL=C )apt-get ' "$BATS_TEST_DIRNAME/../../install.sh")
+  [ "$(printf '%s\n' "$lines" | wc -l)" -eq 5 ]
+  # shellcheck disable=SC2016 # the literal text, not an expansion
+  run grep -vF 'apt-get "${APT_OPTS[@]}" ' <<<"$lines"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test "apt_update: waits for a held lists lock without spending a try" {
+  APT_LOCKED=2
+  stub_apt 0
+  run apt_update
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$APT_LOG")" -eq 3 ]
+  [ "$(cat "$SLEEP_LOG")" = $'5\n5' ]
+  [ "$(grep -c 'holds the package lists lock; waiting 5s' <<<"$output")" -eq 2 ]
+  [[ $output == *"(0/600s)"* ]]
+  [[ $output == *"(5/600s)"* ]]
+  [[ $output == *"Could not get lock"* ]]
+  [[ $output != *attempt* ]]
+}
+
+@test "apt_update: a lock held past the timeout spends the normal tries" {
+  APT_LOCKED=99
+  stub_apt 0
+  APT_LOCK_TIMEOUT=5
+  run apt_update
+  [ "$status" -eq 1 ]
+  [ "$(wc -l <"$APT_LOG")" -eq 4 ]
+  [ "$(cat "$SLEEP_LOG")" = $'5\n7\n7' ]
+  [ "$(grep -c 'holds the package lists lock' <<<"$output")" -eq 1 ]
+  [[ $output == *"attempt 2/3"* ]]
+  [[ $output == *"failed after 3 attempts"* ]]
 }
 
 @test "apt_update: succeeds on the first try without retrying" {

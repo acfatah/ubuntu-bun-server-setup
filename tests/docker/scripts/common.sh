@@ -41,6 +41,21 @@ apt_update_retry() {
   return 1
 }
 
+# Holds an fcntl write lock on $1 for $2 seconds, as another apt or dpkg
+# would; run it with &. Exits non-zero at once when the lock is taken.
+# apt uses fcntl locks, so flock(1) would not block it. struct flock is
+# packed as "s s x4 q q i x4" (l_type, l_whence, pad, l_start, l_len,
+# l_pid, pad): the 64-bit Linux layout, on x86_64 and aarch64.
+hold_apt_lock() {
+  perl -MFcntl -e '
+    open(my $fh, ">>", $ARGV[0]) or die "open $ARGV[0]: $!\n";
+    my $lock = pack("s s x4 q q i x4", F_WRLCK, 0, 0, 0, 0);
+    fcntl($fh, F_SETLK, $lock) or die "lock $ARGV[0]: $!\n";
+    print "held $ARGV[0]\n";
+    sleep $ARGV[1];
+  ' "$1" "$2"
+}
+
 assert_dir_exists() {
   local dir=$1
   if [[ ! -d "$dir" ]]; then

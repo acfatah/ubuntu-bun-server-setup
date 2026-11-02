@@ -207,6 +207,19 @@ summary.
   `main`). `Acquire::Retries` alone misses an InRelease
   that downloads but fails verification. `test_host_safety` uses
   `apt_update_retry` from `common.sh` for its own update.
+- All five `apt-get` calls pass `"${APT_OPTS[@]}"` (`-o
+  DPkg::Lock::Timeout=$APT_LOCK_TIMEOUT`, 600 s) right after `apt-get`,
+  before `-qqy` and the verb (the unit stubs match `*" upgrade"` and
+  `*update` at the end). A constant, not a toggle: a new env var would
+  widen the 1.x surface. The option makes installs wait for dpkg's
+  `lock-frontend`, but `apt-get update` (apt 2.4 and 2.8, tested) still
+  fails at once on a held `/var/lib/apt/lists/lock`, the one
+  `apt-daily.service` holds on a fresh VM. So `apt_update` runs it with
+  `LC_ALL=C`, stderr captured and re-printed, and on `Could not get lock`
+  prints a YELLOW `... holds the package lists lock; waiting` line,
+  sleeps `APT_LOCK_POLL` (10 s) and retries without spending a try, up
+  to `APT_LOCK_TIMEOUT` in total; past that, the lock failure spends the
+  normal tries. A lock held over 600 s still fails the install.
 - `require_snapd` (skipped with `SKIP_CERTBOT=1`) runs between
   `apt_update` and `upgrade_packages`: fresh indexes, nothing changed yet.
   `systemctl is-enabled snapd.service snapd.socket` printing `masked`, or
@@ -470,7 +483,9 @@ Re-running must be safe and never clobber user edits:
   `SKIP_UFW=yes` rejected; after `ufw disable` a third run, with
   `SKIP_UPGRADE=1`, leaves UFW inactive with a note and
   `ufw="left-disabled"`, logs `apt-get update` and no `Upgrading
-  packages`),
+  packages`; that run starts under `hold_apt_lock` on the lists lock
+  (15 s) and `lock-frontend` (40 s), both holders must exit 0, and it
+  succeeds with the `holds the package lists lock; waiting` line),
   `test_cloudflare` (`SKIP_CLOUDFLARE=yes` rejected; files, enabled timer,
   geo in `nginx -T`; stubbed `CLOUDFLARE_IPS_SOURCE`: HTML body, junk
   line, short list, empty family and an `nginx -t` failure all exit
@@ -495,6 +510,12 @@ Re-running must be safe and never clobber user edits:
   (`run_installer`, `assert_*` helpers), with a `# Test: <label>` line
   right after the shebang. `run.sh` discovers every `scripts/test_*.sh`;
   the label falls back to the file name.
+- `hold_apt_lock <file> <seconds>` (`common.sh`, run with `&`): perl takes
+  an `fcntl` write lock (`F_SETLK`, dies when it cannot), prints `held
+  <file>` and sleeps. apt uses `fcntl` locks, so `flock(1)` would not
+  block it; `struct flock` is packed for 64-bit Linux. Keep holders short:
+  later dpkg steps (MOTD `dpkg-divert`, Certbot's apt calls) must not
+  meet them.
 - Override image name (used verbatim, no version tag) with
   `BUN_INSTALLER_TEST_IMAGE`.
 
@@ -521,7 +542,12 @@ Re-running must be safe and never clobber user edits:
   `resolve_bun_version` (`stub_curl_serving` copies a body to `-o` or
   prints a `-w` URL), `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
   22.04, other distro, bad or missing `VERSION_ID`, missing file),
-  `apt_update` retries (`apt-get` and `sleep` stubbed as functions),
+  `apt_update` retries (`apt-get` and `sleep` stubbed as functions;
+  `APT_LOCKED=N` makes the first N calls fail with the lists-lock
+  message: waits that spend no try, and a lock past `APT_LOCK_TIMEOUT`
+  spending the 3 tries), `DPkg::Lock::Timeout=600` before the verb on
+  each stubbed call, a static guard that all five `apt-get` lines in
+  `install.sh` pass `APT_OPTS`,
   `upgrade_packages` modes (default, full, skipped: no `apt-get` call),
   `require_snapd` (`systemctl`, `dpkg-query`, `apt-cache` stubbed: skip
   calls none, installed passes, either unit masked refused, absent with
