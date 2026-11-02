@@ -32,7 +32,9 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
 - Upgrades every installed package with `apt-get upgrade` on each run,
   re-runs included (`FULL_UPGRADE=1` for `full-upgrade`, `SKIP_UPGRADE=1`
   for none), and prints a reboot hint when one is required. A failed
-  `apt-get update` is retried up to three times, 10 seconds apart.
+  `apt-get update` is retried up to three times, 10 seconds apart; a
+  running apt or dpkg is waited for first (see
+  [Prerequisites](#prerequisites)).
 - Installs a Cloudflare IP updater with a daily systemd timer, so Nginx logs
   the real client IP behind Cloudflare and can optionally refuse requests
   that bypass it (set `SKIP_CLOUDFLARE=1` to skip; see
@@ -54,6 +56,12 @@ Bootstrap an opinionated, production-ready Bun application environment for Ubunt
   refused right after `apt-get update`, before any package changes. The
   message names both ways out: unmask (or unpin) snapd, or re-run with
   `SKIP_CERTBOT=1`.
+- No long-running apt or dpkg. On a fresh cloud VM, unattended-upgrades,
+  `apt-daily` or cloud-init often hold the apt locks for the first
+  minutes; the installer waits up to 10 minutes for them, printing a
+  wait line every 10 seconds while the package lists are locked. A lock
+  held longer fails the install with `Could not get lock`; re-run it once
+  the other apt is done.
 
 
 ## Software Included
@@ -794,7 +802,8 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work.
   `full-upgrade`, prints the reboot hint, and adds no duplicate SSH rule.
   It also rejects `SKIP_UFW=yes`, and after `ufw disable` a third run,
   with `SKIP_UPGRADE=1`, leaves UFW disabled and runs `apt-get update`
-  but no upgrade.
+  but no upgrade. That run starts while a helper holds the package lists
+  lock and dpkg's frontend lock: it waits for both and succeeds.
 - `test_cloudflare.sh` — rejects `SKIP_CLOUDFLARE=yes`, checks the updater,
   enabled timer, generated lists and geo after a default install. Against a
   stubbed source (`CLOUDFLARE_IPS_SOURCE`), an HTML body, a junk line, a

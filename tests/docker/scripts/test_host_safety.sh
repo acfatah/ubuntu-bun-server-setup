@@ -90,9 +90,24 @@ assert_file_contains /var/lib/app-info/application.info '^ufw="enabled"$'
 # The operator turns UFW off: a re-run must leave it off (0023). It also
 # skips the upgrade: apt-get update runs, no upgrade (0003)
 ufw disable
+# Another apt holds both locks at the start, as apt-daily does on a fresh
+# VM (0036): the run waits instead of failing with "Could not get lock".
+# Both end before any later dpkg step (MOTD, Certbot).
+hold_apt_lock /var/lib/apt/lists/lock 15 &
+lists_holder=$!
+hold_apt_lock /var/lib/dpkg/lock-frontend 40 &
+frontend_holder=$!
+sleep 1
 before=$(log_lines)
 run_installer SKIP_BUN_APP=1 SKIP_UPGRADE=1
 third_log=$(log_since "$before")
+for holder in "$lists_holder" "$frontend_holder"; do
+  if ! wait "$holder"; then
+    echo "${RED}Assertion failed:${NC} lock holder $holder did not hold its lock" >&2
+    exit 1
+  fi
+done
+grep -q "holds the package lists lock; waiting" <<<"$third_log"
 grep -q "Updating package lists (apt-get update)" <<<"$third_log"
 grep -q "Skipping package upgrade (SKIP_UPGRADE=1)." <<<"$third_log"
 if grep -q "Upgrading packages" <<<"$third_log"; then

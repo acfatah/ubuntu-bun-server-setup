@@ -68,6 +68,11 @@ BASE_PACKAGES=(curl unzip lsb-release ca-certificates nginx ufw logrotate)
 # apt-get update attempts and the pause between them, in seconds
 APT_UPDATE_TRIES=3
 APT_UPDATE_DELAY=10
+# How long apt waits for another apt or dpkg (apt-daily, unattended-upgrades,
+# cloud-init), in seconds, and how often apt_update re-checks the lists lock
+APT_LOCK_TIMEOUT=600
+APT_LOCK_POLL=10
+APT_OPTS=(-o "DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}")
 # Colours only on a terminal; logs and CI output stay free of escapes
 if [[ -t 1 ]]; then
   GREEN=$(printf '\033[0;32m')
@@ -420,14 +425,32 @@ require_ubuntu() {
 # Refreshes APT metadata, retrying the whole update: Acquire::Retries
 # covers failed downloads, not an InRelease that downloads but then
 # fails verification (a mirror caught mid-sync).
+# DPkg::Lock::Timeout (APT_OPTS) makes apt wait for dpkg's frontend lock,
+# but apt-get update still fails at once on a held package lists lock,
+# the one apt-daily.service takes on a fresh VM. So a "Could not get
+# lock" failure waits APT_LOCK_POLL seconds and retries without spending
+# a try, up to APT_LOCK_TIMEOUT in total; LC_ALL=C keeps that message in
+# English. Other failures, and a lock held past the timeout, spend the
+# APT_UPDATE_TRIES tries.
 apt_update() {
-  local try
+  local try=1 waited=0 err
   echo -e "${GREEN}Updating package lists (apt-get update)...${NC}"
-  for ((try = 1; try <= APT_UPDATE_TRIES; try++)); do
-    apt-get -qqy -o Acquire::Retries=3 update && return 0
+  while true; do
+    if err=$(LC_ALL=C apt-get "${APT_OPTS[@]}" -qqy -o Acquire::Retries=3 update 2>&1 >/dev/null); then
+      [[ -z $err ]] || printf '%s\n' "$err" >&2
+      return 0
+    fi
+    [[ -z $err ]] || printf '%s\n' "$err" >&2
+    if [[ $err == *"Could not get lock"* ]] && ((waited < APT_LOCK_TIMEOUT)); then
+      echo -e "${YELLOW}Another apt or dpkg process holds the package lists lock; waiting ${APT_LOCK_POLL}s (${waited}/${APT_LOCK_TIMEOUT}s)...${NC}" >&2
+      sleep "$APT_LOCK_POLL"
+      waited=$((waited + APT_LOCK_POLL))
+      continue
+    fi
     ((try < APT_UPDATE_TRIES)) || break
     echo -e "${YELLOW}apt-get update failed (attempt ${try}/${APT_UPDATE_TRIES}); retrying in ${APT_UPDATE_DELAY}s...${NC}" >&2
     sleep "$APT_UPDATE_DELAY"
+    try=$((try + 1))
   done
   echo -e "${RED}apt-get update failed after ${APT_UPDATE_TRIES} attempts.${NC}" >&2
   return 1
@@ -480,13 +503,13 @@ upgrade_packages() {
     return
   fi
   echo -e "${GREEN}Upgrading packages (apt-get ${mode})...${NC}"
-  apt-get -qqy -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' "$mode"
+  apt-get "${APT_OPTS[@]}" -qqy -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' "$mode"
 }
 
 # Installs base packages needed by the stack.
 install_base_packages() {
   echo -e "${GREEN}Installing base packages: ${BASE_PACKAGES[*]}...${NC}"
-  apt-get -qqy install "${BASE_PACKAGES[@]}"
+  apt-get "${APT_OPTS[@]}" -qqy install "${BASE_PACKAGES[@]}"
 }
 
 # Prints the ports sshd listens on, one per line, from `sshd -T`. Falls
@@ -580,8 +603,8 @@ install_certbot() {
   echo -e "${GREEN}Installing Certbot (snap)...${NC}"
 
   # Avoid older apt certbot; nothing to remove is fine
-  apt-get -qqy remove certbot || true
-  apt-get -qqy install snapd
+  apt-get "${APT_OPTS[@]}" -qqy remove certbot || true
+  apt-get "${APT_OPTS[@]}" -qqy install snapd
   systemctl --quiet enable --now snapd
   # Wait for snapd socket, then for seeding: installs before it finish
   # fail with "too early for operation". A timeout is not fatal here;
