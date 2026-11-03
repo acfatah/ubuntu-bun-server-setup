@@ -170,6 +170,16 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work. Se
   that `--check` passes checking neither `bun-app`, the probe nor Certbot.
   A re-run without either toggle keeps a custom `index.html`, enables UFW
   and installs Certbot, which `--check` then checks.
+- `test_custom_app.sh` — runs what [docs/app.md](docs/app.md) shows:
+  replaces the sample with `docs/examples/hono` and checks `/healthz`,
+  `/api/x` and a SQLite counter in the state dir; a re-run keeps the
+  app's `package.json` and writes no sample `server.ts`; static files in
+  `/var/www/app/dist` are served beside `/api/`. Then
+  `docs/examples/deploy.sh` deploys over SSH to `localhost` as a sudo
+  user, in place and with `--release` (after the one-time migration it
+  prints), prunes old releases, survives an installer re-run and
+  `--rollback`s to the previous release. Needs the npm registry for
+  `bun install`.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
   `SKIP_BUN_APP=0`, edits installed files, checks a run is refused and
   changes nothing while the lock is held, re-runs, and checks the edits
@@ -306,6 +316,13 @@ ubuntu-bun-server-setup/
 ├── build-installer.sh         # Pinned release installer (dist/)
 ├── docs/                      # Operator documentation
 │   ├── README.md              # Index of the pages
+│   ├── app.md                 # Your app: contract, recipes, deploys
+│   ├── examples/              # Run by test_custom_app; keep app.md in step
+│   │   ├── deploy.sh          # Deploy over SSH: in place or release dirs
+│   │   └── hono/              # Example app replacing the sample
+│   │       ├── bun.lock
+│   │       ├── package.json
+│   │       └── src/index.ts
 │   ├── cloudflare.md          # Real client IP, updater
 │   ├── compatibility.md       # Stability promise and support window
 │   ├── configuration.md       # Environment toggles
@@ -351,7 +368,9 @@ ubuntu-bun-server-setup/
         ├── run.sh             # Test runner script
         └── scripts/           # Individual test scripts
             ├── common.sh      # Common test utilities
+            ├── test_bun_pin.sh
             ├── test_cloudflare.sh
+            ├── test_custom_app.sh
             ├── test_default.sh
             ├── test_fail_loudly.sh
             ├── test_host_safety.sh
