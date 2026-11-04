@@ -136,7 +136,8 @@ Operator documentation lives in [docs/](docs/README.md):
 - [Architecture](docs/architecture.md): the install flow step by step,
   what runs, the Nginx files, and what a re-run keeps or rewrites.
 - [Operations](docs/operations.md): health check, logs, re-running the
-  installer, upgrading from older releases.
+  installer, upgrading from older releases, TLS with Certbot, upgrading
+  Bun, restarts, backups.
 - [Your app](docs/app.md): what the host expects from an app, extending
   or replacing the sample, frontend plus API, deploying with rollback.
 - [Cloudflare](docs/cloudflare.md): real client IP, "Cloudflare only",

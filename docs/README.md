@@ -11,7 +11,8 @@ first install command are in the [README](../README.md).
 - [Architecture](architecture.md): the install flow step by step,
   what runs, the Nginx files, and what a re-run keeps or rewrites.
 - [Operations](operations.md): health check, logs, re-running the
-  installer, upgrading from older releases.
+  installer, upgrading from older releases, TLS with Certbot, upgrading
+  Bun, restarts, backups.
 - [Your app](app.md): what the host expects from an app, extending
   or replacing the sample, frontend plus API, deploying with rollback.
 - [Cloudflare](cloudflare.md): real client IP, "Cloudflare only", the IP
