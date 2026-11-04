@@ -807,9 +807,10 @@ setup_sample_app() {
   download_template "package.json" "$APP_DIR/package.json"
   download_template "nginx-index-sample.html" "$NGINX_ROOT/index.html"
 
-  chown -R www-data:www-data "$NGINX_ROOT"
-
-  # set directories to 755 and files to 644
+  # Root-owned: Nginx workers (www-data) only read the web root, so they
+  # must not be able to rewrite the files they serve. Directories 755,
+  # files 644.
+  chown -R root:root "$NGINX_ROOT"
   find "$NGINX_ROOT" -type d -exec chmod 755 {} +
   find "$NGINX_ROOT" -type f -exec chmod 644 {} +
 }

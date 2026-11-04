@@ -45,6 +45,7 @@ Code and state are kept apart:
 | DB, uploads, state | `/var/lib/bun-app` (= `/srv/app/data`) | bun-app | read-write     |
 | Cache              | `/var/cache/bun-app`                  | bun-app | read-write     |
 | Installer log      | `/var/log/bun-installer.log` (rotated by `/etc/logrotate.d/bun-installer`) | root:adm | none |
+| Web root           | `/var/www/app/dist`                   | root    | none (Nginx reads it) |
 
 - `/var/lib/bun-app` and `/var/cache/bun-app` are created and owned by
   systemd (`StateDirectory=`, `CacheDirectory=`). The state dir is mode
@@ -63,6 +64,14 @@ Code and state are kept apart:
 - The data outlives code deploys: wiping and replacing `/srv/app` never
   touches `/var/lib/bun-app`. Back up that one directory. See [Your
   app](app.md) for deploy recipes that keep it.
+- The web root is owned by root (directories `755`, files `644`), so an
+  Nginx worker can read the files it serves but not change them. Hosts
+  installed before 1.0 have it owned by `www-data`; re-runs leave it as
+  it is. Fix it once with:
+
+  ```bash
+  sudo chown -R root:root /var/www/app/dist
+  ```
 
 ## Sandboxing
 

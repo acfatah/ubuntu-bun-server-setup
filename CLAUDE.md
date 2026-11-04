@@ -322,6 +322,8 @@ summary.
 - Security headers are `add_header ... always` at server level. Never add
   an `add_header` inside a location (e.g. `/assets/`): it drops every
   inherited header. `/assets/` gets its one `Cache-Control` from `expires`.
+- `setup_sample_app` chowns the web root to `root:root` (Nginx only
+  reads it).
 - `#include snippets/cloudflare-only.conf;` ships commented out (see
   Cloudflare below).
 
@@ -439,7 +441,8 @@ Re-running must be safe and never clobber user edits:
   check each status explicitly there.
 - Scenarios: `test_root_guard` (non-root fails), `test_default` (full
   install, `curl` expects `"Hello Bun"` and `/api/x` → `"path":"/api/x"`,
-  security headers, one `Cache-Control` on `/assets/`, env file `600` and
+  security headers, one `Cache-Control` on `/assets/`, web root and
+  `index.html` `root:root`, env file `600` and
   in the process environ, `Connection: upgrade` only on upgrade requests
   (a `bun -e` probe replaces `bun-app` at the end), service runs as
   `bun-app`, code read-only, state dir writable, Bun only

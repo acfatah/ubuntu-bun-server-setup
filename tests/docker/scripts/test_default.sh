@@ -74,6 +74,10 @@ headers=$(curl -fsSI http://127.0.0.1/assets/t.css)
 assert_equals "Cache-Control lines" 1 "$(grep -ci '^Cache-Control:' <<<"$headers")"
 grep -qi '^X-Content-Type-Options: nosniff' <<<"$headers"
 
+# The web root and its files are owned by root: Nginx only reads them
+assert_equals "web root owner" root:root "$(stat -c %U:%G /var/www/app/dist)"
+assert_equals "index.html owner" root:root "$(stat -c %U:%G /var/www/app/dist/index.html)"
+
 # Bun listens on loopback only; clients go through Nginx (S7)
 listeners=$(ss -Hltn 'sport = :3000' | awk '{print $4}')
 assert_equals "port 3000 listeners" "127.0.0.1:3000" "$listeners"

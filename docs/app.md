@@ -168,7 +168,7 @@ serves it, and Bun handles `/api/` and every path with no file.
 ```bash
 bun run build        # on your machine: writes dist/
 rsync -a --delete --rsync-path='sudo rsync' dist/ host:/var/www/app/dist/
-ssh host 'sudo chown -R www-data:www-data /var/www/app/dist &&
+ssh host 'sudo chown -R root:root /var/www/app/dist &&
   sudo find /var/www/app/dist -type d -exec chmod 755 {} + &&
   sudo find /var/www/app/dist -type f -exec chmod 644 {} +'
 ```
