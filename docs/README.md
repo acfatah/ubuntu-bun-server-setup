@@ -23,5 +23,7 @@ first install command are in the [README](../README.md).
 - [Troubleshooting](troubleshooting.md): install failures, apt and
   snapd, the SSH rate limit, `--check` problems, client IPs, Cloudflare
   fetches.
+- [Upgrading and support](upgrading.md): moving a host to a newer
+  release, the support window, known gaps.
 - [Compatibility](compatibility.md): the 1.x stability promise and
   support window.

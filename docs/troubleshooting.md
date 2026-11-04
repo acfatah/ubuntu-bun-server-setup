@@ -161,6 +161,6 @@ failed`** (or another `cloudflare-update-ips:` line) in the journal
 
 <div align="center">
 
-[← Security](security.md) · [Documentation index](README.md) · [Compatibility →](compatibility.md)
+[← Security](security.md) · [Documentation index](README.md) · [Upgrading and support →](upgrading.md)
 
 </div>

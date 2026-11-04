@@ -148,6 +148,8 @@ Operator documentation lives in [docs/](docs/README.md):
 - [Troubleshooting](docs/troubleshooting.md): install failures, apt and
   snapd, the SSH rate limit, `--check` problems, client IPs, Cloudflare
   fetches.
+- [Upgrading and support](docs/upgrading.md): moving a host to a newer
+  release, the support window, known gaps.
 - [Compatibility](docs/compatibility.md): the 1.x stability promise and
   support window.
 
