@@ -131,8 +131,8 @@ Operator documentation lives in [docs/](docs/README.md):
 - [Installation](docs/installation.md): prerequisites, install options,
   pinned and development channels, template source, Bun version,
   air-gapped and proxied installs.
-- [Configuration](docs/configuration.md): environment toggles and
-  `KEY=VALUE` arguments.
+- [Configuration](docs/configuration.md): a reference table of every
+  setting and flag, then the environment toggles in detail.
 - [Operations](docs/operations.md): health check, logs, re-running the
   installer, upgrading from older releases.
 - [Your app](docs/app.md): what the host expects from an app, extending

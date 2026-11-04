@@ -273,8 +273,10 @@ summary.
   other value exits 1 with `Invalid <NAME>=<value>` before the root check.
   Adding a toggle means extending both loops in `parse_args`, `USAGE`,
   `print_help`, the header comment, the three toggle loops in
-  `install.bats`, the toggle table in `docs/compatibility.md` and the
-  toggle list in `SECURITY.md` "What to include".
+  `install.bats`, the toggle table in `docs/compatibility.md`, the
+  reference table in `docs/configuration.md` (one row per setting and
+  flag, nothing beyond the stable surface) and the toggle list in
+  `SECURITY.md` "What to include".
 - `FULL_UPGRADE=1` swaps `apt-get upgrade` for `full-upgrade`. The summary
   prints a reboot hint when `/var/run/reboot-required` exists (a note, not
   a problem: the return value is unchanged).
