@@ -1,11 +1,55 @@
 # Security
 
-How the installed services are confined: the service user, the
-environment file, the filesystem layout, the systemd sandbox and limits
-of both units, and how to customise and troubleshoot them.
+What the installer trusts and what the installed host exposes, then how
+the installed services are confined: the service user, the environment
+file, the filesystem layout, the systemd sandbox and limits of both
+units, and how to customise and troubleshoot them.
 
 To report a vulnerability, see [SECURITY.md](../SECURITY.md); please do not
 open a public issue.
+
+## Threat model
+
+**The installer** runs as root and downloads code. What it checks:
+
+| Download | Checked against | Trust rests on |
+| --- | --- | --- |
+| Templates, release installer | SHA-256 sums built into the installer | the installer you ran |
+| Templates, `main` (dev channel) or another `TEMPLATE_REF` | nothing | GitHub and TLS |
+| Templates, a `templates/` next to `install.sh` | nothing | whoever wrote that directory |
+| Bun, pinned version | SHA-256 sums built into the installer | the installer you ran |
+| Bun, `BUN_VERSION=X.Y.Z` or `latest` | the release's `SHASUMS256.txt` | GitHub and TLS: sums and zip come from the same place |
+| Ubuntu packages | apt's signed indexes | Ubuntu's archive keys |
+| Certbot | the snap store's signatures | Canonical's snap store |
+| Cloudflare IP ranges | a strict CIDR check, a minimum count | Cloudflare and TLS |
+
+- **Every download uses TLS 1.2 or later** and follows redirects to
+  `https://` only; `http://` mirrors are refused.
+- **A release installer is as trustworthy as its download.** Check it
+  against the release's `SHA256SUMS` (see [Pin and check a
+  version](installation.md#pin-and-check-a-version)). Both files come
+  from GitHub Releases: there is no build provenance and no signed tag
+  yet, so the check catches a broken download, not a compromised
+  release.
+
+**The installed host** exposes:
+
+- **Nginx on 80** (and 443 after Certbot), the only service open to
+  the network besides SSH. UFW rate-limits the SSH port(s) and denies
+  everything else incoming.
+- **Bun on `127.0.0.1:3000` only,** reached through Nginx, run as the
+  unprivileged `bun-app` with no capabilities and read-only code.
+- **The Cloudflare updater** runs as root, sandboxed, once a day.
+- **Plain HTTP until you run Certbot.** The installer gets no
+  certificate, and the HSTS header ships commented out in the site. See
+  Operations, [TLS with Certbot](operations.md#tls-with-certbot).
+- **Snaps update on their own.** The Certbot snap refreshes outside any
+  change window unless you hold it; see `SKIP_UPGRADE` in
+  [Configuration](configuration.md#environment-toggles).
+- **"Cloudflare only" admits other Cloudflare customers.** It checks
+  that a request comes from a Cloudflare edge, not from your zone. See
+  Cloudflare, [Other Cloudflare
+  customers](cloudflare.md#other-cloudflare-customers).
 
 ## Service user
 

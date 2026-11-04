@@ -142,8 +142,9 @@ Operator documentation lives in [docs/](docs/README.md):
   or replacing the sample, frontend plus API, deploying with rollback.
 - [Cloudflare](docs/cloudflare.md): real client IP, "Cloudflare only",
   the IP list updater, removing it.
-- [Security](docs/security.md): service user, environment file,
-  filesystem layout, systemd sandbox and limits, troubleshooting.
+- [Security](docs/security.md): threat model, service user,
+  environment file, filesystem layout, what the web root serves, systemd
+  sandbox and limits, troubleshooting.
 - [Compatibility](docs/compatibility.md): the 1.x stability promise and
   support window.
 
