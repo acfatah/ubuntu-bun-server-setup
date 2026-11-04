@@ -65,9 +65,9 @@ Any app the `bun-app` unit runs, sample or yours, must meet these:
   exists, else falls back to `@bun`: Bun handles server routes and
   single-page-app paths.
 - **`/api/` always reaches Bun,** even when a file of that name exists.
-- **`/healthz`** reaches Bun without an access-log line. Under
-  [Cloudflare only](cloudflare.md#cloudflare-only-off) it answers only
-  requests from the host itself.
+- **`/healthz`** reaches Bun without an access-log line. Under the
+  optional [Cloudflare only](cloudflare.md#cloudflare-only-off) rule (off
+  by default), it answers only requests from the host itself.
 
 ## Recipes
 

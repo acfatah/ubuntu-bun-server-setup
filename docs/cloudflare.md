@@ -5,8 +5,19 @@ optional "Cloudflare only" rule, the daily IP list updater, and how to
 remove it. The updater's systemd sandbox is in
 [Security](security.md#cloudflare-updater-sandbox).
 
-Installed by default; `SKIP_CLOUDFLARE=1` leaves it out. It keeps Nginx in
-step with Cloudflare's published IP ranges:
+Real client IP is on by default; the "Cloudflare only" filter is off until
+you uncomment its include (see [Cloudflare only](#cloudflare-only-off)).
+
+- **No setting turns the filter on.** It needs that one edit to the site,
+  since the installer cannot tell whether your DNS records are proxied.
+- **`SKIP_CLOUDFLARE=1`** is the only Cloudflare setting, and it works the
+  other way: it leaves all Cloudflare support out. Pass it as an
+  environment variable (`sudo SKIP_CLOUDFLARE=1 bash install.sh`) or as an
+  argument (`sudo bash install.sh SKIP_CLOUDFLARE=1`); see
+  [Configuration](configuration.md#environment-toggles).
+
+Unless skipped, the installer keeps Nginx in step with Cloudflare's
+published IP ranges:
 
 | Path | What it is |
 |---|---|
