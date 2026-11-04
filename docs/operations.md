@@ -176,6 +176,6 @@ in [Your app](app.md).
 
 <div align="center">
 
-[← Configuration](configuration.md) · [Documentation index](README.md) · [Your app →](app.md)
+[← Architecture](architecture.md) · [Documentation index](README.md) · [Your app →](app.md)
 
 </div>

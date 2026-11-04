@@ -104,6 +104,6 @@ sudo bash install.sh BUN_VERSION=latest
 
 <div align="center">
 
-[← Installation](installation.md) · [Documentation index](README.md) · [Operations →](operations.md)
+[← Installation](installation.md) · [Documentation index](README.md) · [Architecture →](architecture.md)
 
 </div>

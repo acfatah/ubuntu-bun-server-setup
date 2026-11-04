@@ -133,6 +133,8 @@ Operator documentation lives in [docs/](docs/README.md):
   air-gapped and proxied installs.
 - [Configuration](docs/configuration.md): a reference table of every
   setting and flag, then the environment toggles in detail.
+- [Architecture](docs/architecture.md): the install flow step by step,
+  what runs, the Nginx files, and what a re-run keeps or rewrites.
 - [Operations](docs/operations.md): health check, logs, re-running the
   installer, upgrading from older releases.
 - [Your app](docs/app.md): what the host expects from an app, extending
