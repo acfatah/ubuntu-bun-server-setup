@@ -13,6 +13,7 @@ Thank you for your interest in contributing to the Ubuntu Bun Server Setup proje
     - [Prerequisites](#prerequisites)
     - [Local Development](#local-development)
   - [Testing](#testing)
+    - [Requirements](#requirements)
     - [Running Tests](#running-tests)
     - [Running Individual Tests](#running-individual-tests)
     - [Unit Tests](#unit-tests)
@@ -40,7 +41,8 @@ Before contributing, please familiarize yourself with:
 - Bash scripting
 - System administration concepts (systemd, Nginx, UFW)
 - Docker (for testing)
-- The project's [README.md](README.md) for an overview
+- The project's [README.md](README.md) for an overview, and the operator
+  documentation in [docs/](docs/README.md)
 
 ## Development Setup
 
@@ -67,6 +69,12 @@ Before contributing, please familiarize yourself with:
 ## Testing
 
 This project includes a Docker-based end-to-end test harness that provisions an Ubuntu systemd environment in a container and runs the installer in realistic scenarios.
+
+### Requirements
+
+- Docker installed and the Docker daemon running.
+- Ability to run privileged containers (the test container runs systemd).
+- Run commands from the repository root.
 
 ### Running Tests
 
@@ -133,15 +141,95 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work. Se
 
 ### Test Scenarios
 
-- `test_root_guard.sh` — ensures the installer fails when run as a non-root user
-- `test_default.sh` — runs a default install and verifies systemd units, application files, Nginx configuration, HTTP response (`"Hello Bun"`), `/api/x` reaching Bun with its prefix, security and cache headers, the WebSocket `Connection` header sent only on upgrade requests, the root-only `/etc/bun-app.env`, Bun listening on `127.0.0.1` only, port 22 limited when no sshd is installed, and `certbot` availability
-- `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks that Nginx serves `/var/www/html` and returns the expected `"Hello World"` content, keeps the stock Nginx site without the proxy snippet or map file, installs the Cloudflare real-IP config without touching the stock site, and keeps a custom `index.html` on a re-run
-- `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with `SKIP_BUN_APP=0`, edits installed files, re-runs, and checks the edits survive, `INSTANCE_ID` stays a single stable line, and the MOTD diversions outlast a `base-files` reinstall
-- `test_piped_install.sh` — pipes the installer through `bash -s` with `SKIP_BUN_APP=1` as an argument and `TEMPLATE_BASE_URL=file:///workspace/templates`, so the branch's templates are downloaded (Cloudflare included) before they reach `main`; checks that unknown arguments and an invalid `TEMPLATE_REF` are rejected, `--version` names the ref, and `--help` runs as non-root
-- `test_release_build.sh` — builds a pinned installer with `build-installer.sh 9.9.9`, checks `SHA256SUMS` and `--version`, runs it piped with verified `file://` templates, then checks a tampered template fails the re-run and leaves the installed file unchanged, and that `TEMPLATE_REF=main` skips verification with a warning
-- `test_fail_loudly.sh` — runs a copy of the repo with a broken `nginx-default.conf` and checks the installer exits non-zero with the `install failed at line N` message and no colour escapes off a terminal
-- `test_host_safety.sh` — rejects `FULL_UPGRADE=yes`, runs sshd on port 2222 and checks UFW limits `2222/tcp` instead of 22 with `apt-get upgrade`, then checks a `FULL_UPGRADE=1` re-run keeps an added rule and a changed default policy, and prints the reboot hint
-- `test_cloudflare.sh` — rejects `SKIP_CLOUDFLARE=yes`, checks the updater, timer and Nginx files after a default install, then runs the updater on a stubbed `CLOUDFLARE_IPS_SOURCE`: bad lists (HTML body, junk line, short list, empty family, a list `nginx -t` refuses) leave the lists and Nginx unchanged, a good list applies and reloads once, the access log shows the `CF-Connecting-IP` address, the `cloudflare-only.conf` include returns 403 to non-edge clients, and a re-run under the old `cloudflare-ip-filter.conf` does not enable real client IP
+- `test_root_guard.sh` — ensures the installer fails when run as a non-root
+  user.
+- `test_default.sh` — runs a default install and verifies systemd units,
+  application files, Nginx configuration, HTTP response (`"Hello Bun"`),
+  the `/api/` proxy to Bun (prefix kept), security headers, a single
+  `Cache-Control` on `/assets/`, a `Connection: upgrade` header sent only
+  for upgrade requests, the root-only `/etc/bun-app.env`, the non-root `bun-app` service user, read-only
+  code / writable state dir, Bun listening on `127.0.0.1:3000` only, port
+  22 limited when no sshd is installed, `certbot` availability, the
+  pinned Bun version with its embedded checksum and `bunx` link, the
+  unit's stop timeout and file limit, `systemd-analyze verify` on
+  both units, `/healthz` (`ok`, no access-log line), `--check` passing as
+  `nobody`, `logrotate -d` on the rule, and `--check` failing with
+  `bun-app` stopped, naming the service and the probe.
+- `test_bun_pin.sh` — rejects `BUN_VERSION=yes`; a tampered zip on a
+  `file://` mirror fails with nothing in `/usr/local/bin`; a bad
+  `SHASUMS256.txt` for `BUN_VERSION=1.4.3` fails and leaves the installed
+  Bun byte-identical; `BUN_VERSION=1.4.3` replaces the pin, a default run
+  brings it back, another run leaves it alone, and `BUN_VERSION=latest`
+  installs the newest release.
+- `test_skip_sample.sh` — runs the installer with `SKIP_BUN_APP=1` and checks
+  that Nginx serves `/var/www/html` and returns the expected `"Hello World"`
+  content, that the stock Nginx site is kept and no proxy snippet or map
+  file is installed, that the Cloudflare real-IP config is installed with
+  the stock site untouched, that `SKIP_UFW=1` leaves UFW inactive with
+  no rules, that `SKIP_CERTBOT=1` installs neither snapd nor Certbot, and
+  that `--check` passes checking neither `bun-app`, the probe nor Certbot.
+  A re-run without either toggle keeps a custom `index.html`, enables UFW
+  and installs Certbot, which `--check` then checks.
+- `test_custom_app.sh` — runs what [docs/app.md](docs/app.md) shows:
+  replaces the sample with `docs/examples/hono` and checks `/healthz`,
+  `/api/x` and a SQLite counter in the state dir; a re-run keeps the
+  app's `package.json` and writes no sample `server.ts`; static files in
+  `/var/www/app/dist` are served beside `/api/`. Then
+  `docs/examples/deploy.sh` deploys over SSH to `localhost` as a sudo
+  user, in place and with `--release` (after the one-time migration it
+  prints), prunes old releases, survives an installer re-run and
+  `--rollback`s to the previous release. Needs the npm registry for
+  `bun install`.
+- `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
+  `SKIP_BUN_APP=0`, edits installed files, checks a run is refused and
+  changes nothing while the lock is held, re-runs, and checks the edits
+  survive, `INSTANCE_ID` stays a single stable line (also in
+  `/etc/bun-app.env` and the process environment), and the MOTD
+  diversions outlast a `base-files` reinstall. The edited files include the
+  logrotate rule.
+- `test_piped_install.sh` — pipes the installer into `bash -s --
+  SKIP_BUN_APP=1` the way the Quick Start does, with
+  `TEMPLATE_BASE_URL=file:///workspace/templates` so the branch's templates
+  are used. Checks the argument takes effect, Cloudflare support is
+  installed, no `BASH_SOURCE` error is printed, downloaded (not local)
+  templates are used, and that unknown arguments, a `TEMPLATE_REF` with
+  `..` and an `http://` `TEMPLATE_BASE_URL` are rejected; `--version` names
+  the ref and says the dev channel is not verified, and `--help` runs as
+  non-root.
+- `test_release_build.sh` — builds a pinned installer with
+  `build-installer.sh 9.9.9`, checks its `SHA256SUMS` and `--version`, and
+  pipes it with `file://` templates: `--version` says templates are
+  verified, they are, and `application.info` records
+  `installer_version="9.9.9"`. A re-run with a tampered `application.info`
+  fails with a checksum error and leaves the installed file unchanged; with
+  `TEMPLATE_REF=main` it warns, skips verification and logs why.
+- `test_fail_loudly.sh` — runs a copy of the repo with a broken
+  `nginx-default.conf` and checks the installer exits non-zero with the
+  `install failed at line N` message and no colour escapes off a terminal.
+  With snapd masked, a run is refused with the masked message before any
+  package upgrade; on a faked Ubuntu 20.04, likewise.
+- `test_host_safety.sh` — rejects `FULL_UPGRADE=yes` and
+  `SKIP_UPGRADE=1` with `FULL_UPGRADE=1`, installs
+  openssh-server on port 2222 and checks UFW limits `2222/tcp` (not 22) and
+  the default run uses `apt-get upgrade`. After adding a rule and changing
+  the default incoming policy, a `FULL_UPGRADE=1` re-run keeps both, uses
+  `full-upgrade`, prints the reboot hint, and adds no duplicate SSH rule.
+  It also rejects `SKIP_UFW=yes`, and after `ufw disable` a third run,
+  with `SKIP_UPGRADE=1`, leaves UFW disabled and runs `apt-get update`
+  but no upgrade. That run starts while a helper holds the package lists
+  lock and dpkg's frontend lock: it waits for both and succeeds.
+- `test_cloudflare.sh` — rejects `SKIP_CLOUDFLARE=yes`, checks the updater,
+  enabled timer, generated lists and geo after a default install. Against a
+  stubbed source (`CLOUDFLARE_IPS_SOURCE`), an HTML body, a junk line, a
+  short list, an empty family, and a list `nginx -t` refuses all fail and
+  leave the lists and Nginx unchanged; a good list applies, a repeat run
+  reports `unchanged`, the access log shows the `CF-Connecting-IP` address,
+  and the `cloudflare-only.conf` include answers 200 from an edge and 403
+  otherwise, except `/healthz` from `127.0.0.1` (and `::1` when present),
+  which still gets 200; from the container's own address it gets 403. Through `systemctl start`, inside the unit's sandbox, a
+  changed list applies and reloads Nginx, and a list `nginx -t` refuses
+  fails the unit with the lists unchanged. A re-run on a host whose site still includes the old
+  `cloudflare-ip-filter.conf` does not enable real client IP.
 
 You can override the test image name with the `BUN_INSTALLER_TEST_IMAGE` environment variable if you want to reuse or inspect the image:
 
@@ -226,11 +314,24 @@ ubuntu-bun-server-setup/
 │       ├── e2e.yml            # Docker e2e tests (22.04/24.04)
 │       └── release.yml        # GitHub Release on v* tags
 ├── build-installer.sh         # Pinned release installer (dist/)
-├── docs/
-│   └── compatibility.md       # Stability promise and support window
+├── docs/                      # Operator documentation
+│   ├── README.md              # Index of the pages
+│   ├── app.md                 # Your app: contract, recipes, deploys
+│   ├── examples/              # Run by test_custom_app; keep app.md in step
+│   │   ├── deploy.sh          # Deploy over SSH: in place or release dirs
+│   │   └── hono/              # Example app replacing the sample
+│   │       ├── bun.lock
+│   │       ├── package.json
+│   │       └── src/index.ts
+│   ├── cloudflare.md          # Real client IP, updater
+│   ├── compatibility.md       # Stability promise and support window
+│   ├── configuration.md       # Environment toggles
+│   ├── installation.md        # Install options, channels, Bun version
+│   ├── operations.md          # Health check, re-runs, upgrades
+│   └── security.md            # Service user, sandbox, limits
 ├── install.sh                 # Main installation script (dev channel)
 ├── Makefile                   # Build and test automation
-├── README.md                  # Project documentation
+├── README.md                  # Project overview
 ├── CLAUDE.md                  # Notes for Claude Code
 ├── CONTRIBUTING.md            # This file
 ├── RELEASE.md                 # Release process
@@ -267,7 +368,9 @@ ubuntu-bun-server-setup/
         ├── run.sh             # Test runner script
         └── scripts/           # Individual test scripts
             ├── common.sh      # Common test utilities
+            ├── test_bun_pin.sh
             ├── test_cloudflare.sh
+            ├── test_custom_app.sh
             ├── test_default.sh
             ├── test_fail_loudly.sh
             ├── test_host_safety.sh

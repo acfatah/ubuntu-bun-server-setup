@@ -790,13 +790,15 @@ create_app_user() {
     --no-create-home --shell /usr/sbin/nologin bun-app
 }
 
-# Creates a minimal Bun app under /srv/app unless disabled.
+# Creates a minimal Bun app under /srv/app unless disabled. An app
+# already there (server.ts or package.json present) is never touched, so
+# a replaced app laid out differently (e.g. src/index.ts) survives a re-run.
 setup_sample_app() {
   skip_app && return
 
   mkdir -p "$APP_DIR"
-  if [[ -f "$APP_DIR/server.ts" ]]; then
-    echo -e "${YELLOW}Sample app directory exists: $APP_DIR (skipping).${NC}"
+  if [[ -f $APP_DIR/server.ts || -f $APP_DIR/package.json ]]; then
+    echo -e "${YELLOW}App exists in $APP_DIR (server.ts or package.json; skipping sample).${NC}"
     return
   fi
   echo -e "${GREEN}Creating sample Bun app at $APP_DIR...${NC}"

@@ -5,7 +5,9 @@
 Only the [latest release][latest] gets security fixes. Older releases get
 none; upgrade to the latest one instead. The `install.sh` on `main` is the
 development channel and may change at any time. The support window and the
-stability promise are in [docs/compatibility.md](docs/compatibility.md).
+stability promise are in [docs/compatibility.md](docs/compatibility.md);
+how the installed services are confined is in
+[docs/security.md](docs/security.md).
 
 ## Reporting a vulnerability
 

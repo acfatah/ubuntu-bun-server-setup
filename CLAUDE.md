@@ -29,8 +29,8 @@ make dist VERSION=1.2.3                   # pinned installer in dist/ (default: 
 ```
 
 - Lint and format cover `install.sh`, `release.sh`, `build-installer.sh`,
-  `tests/docker/**/*.sh`, `tests/release/*.sh`, `templates/*.sh` and
-  `tests/unit/*.bats` (`SHELL_FILES` in `Makefile`; both tools detect
+  `tests/docker/**/*.sh`, `tests/release/*.sh`, `templates/*.sh`,
+  `docs/examples/*.sh` and `tests/unit/*.bats` (`SHELL_FILES` in `Makefile`; both tools detect
   bats from the shebang or extension).
 - Style lives in `.editorconfig` (2-space, `-bn -ci`, for `*.sh` and
   `*.bats`); shfmt reads it only
@@ -241,8 +241,9 @@ summary.
 ### Service user and sandbox
 
 - `bun-app.service` runs as `bun-app` (nologin) with a strict sandbox
-  (`ProtectSystem=strict`, empty `CapabilityBoundingSet`, ...). README
-  "Security" documents every directive; keep the two in sync.
+  (`ProtectSystem=strict`, empty `CapabilityBoundingSet`, ...).
+  `docs/security.md` "Sandboxing" documents every directive; keep the two
+  in sync.
 - `EnvironmentFile=-/etc/bun-app.env` (`INSTANCE_ID`, `PORT`; root `0600`,
   written by `write_app_env`) replaces a placeholder in the unit. The unit
   waits for `network-online.target`.
@@ -252,8 +253,9 @@ summary.
 - Never add `MemoryDenyWriteExecute`: Bun's JIT needs W+X memory and the
   unit crash-loops.
 - Limits block: `TimeoutStopSec=30`, `LimitNOFILE=65536`, commented
-  `#MemoryMax=` (set in a drop-in). README "Limits" lists them. Kept units
-  on existing hosts never get them (README says to use a drop-in).
+  `#MemoryMax=` (set in a drop-in). `docs/security.md` "Limits" lists
+  them. Kept units on existing hosts never get them (that page says to
+  use a drop-in).
 - `install_bun` probes `/usr/local/bin/bun` as `nobody`
   (`runuser -u nobody`); a Bun that fails the probe (a legacy symlink into
   `/root/.bun`) is replaced like one of another version.
@@ -337,8 +339,9 @@ summary.
   under a manual run still holding it), `ProtectHome`, kernel/namespace protections,
   `MemoryDenyWriteExecute`, `SystemCallFilter=@system-service`,
   `CapabilityBoundingSet=CAP_DAC_OVERRIDE` (`nginx -t` opens the
-  `www-data`-owned logs for writing; an empty set fails it). README
-  "Cloudflare updater sandbox" lists every directive; keep them in sync.
+  `www-data`-owned logs for writing; an empty set fails it).
+  `docs/security.md` "Cloudflare updater sandbox" lists every directive;
+  keep them in sync.
   Exposure 9.0 → 2.2 on 22.04. Gotcha: `/root` and `/home` are hidden, so a
   `CLOUDFLARE_IPS_SOURCE` there works from a shell but not under the unit.
 - It writes the **generated** `/etc/nginx/cloudflare/real-ip.conf`
@@ -388,7 +391,9 @@ Re-running must be safe and never clobber user edits:
   Used for `bun-app.service`, `/etc/bun-app.env`, the Nginx proxy snippet
   and map file, skip-mode `index.html`, the Cloudflare updater, units,
   `conf.d` file and snippet, `00-custom` MOTD and the logrotate rule. Sample app skipped if
-  `/srv/app/server.ts` exists.
+  `/srv/app/server.ts` **or** `/srv/app/package.json` exists, so a
+  replaced app laid out differently (e.g. Hono in `src/index.ts`) is
+  never overwritten.
 - The Nginx default site is kept only if it carries the marker
   `# Managed by ubuntu-bun-server-setup.` (line 1 of
   `templates/nginx-default.conf`; keep it there). Ubuntu ships a stock
@@ -513,7 +518,21 @@ Re-running must be safe and never clobber user edits:
   it, kept after it exits), an `nginx -t` failure fails the unit with
   the lists byte-identical; the
   drop-in is removed after; re-run under an active old filter skips
-  `conf.d`).
+  `conf.d`),
+  `test_custom_app` (runs what `docs/app.md` shows: every installer run
+  uses `SKIP_UPGRADE=1 SKIP_CERTBOT=1`; `/srv/app` emptied but `data`,
+  `docs/examples/hono` copied in, `bun install --frozen-lockfile
+  --production` as root: `/healthz`, `/api/x` JSON, SQLite visit counter
+  in the state dir; a re-run keeps `package.json` (`cmp`) and writes no
+  `server.ts`, `--check` passes; static `dist/` beside `/api/`, one
+  `Cache-Control` on `/assets/`, an unknown path falls back to Hono; then
+  `openssh-server` + `rsync`, `tester` with passwordless sudo and root's
+  key: `docs/examples/deploy.sh tester@localhost` serves a changed
+  message with the counter kept and root-owned code; `--release` onto a
+  plain dir refuses with the `0-initial` hint, the hint's migration, two
+  releases (`KEEP=2` prunes `0-initial`), `data` resolves to
+  `/var/lib/bun-app`, a re-run keeps the link, `--rollback` serves the
+  previous release).
 - Gotcha: files a test wrote under `/tmp` vanished. Cause (confirmed):
   `docker exec` started the test while systemd still booted, and
   `systemd-tmpfiles-setup` emptied `/tmp` under it. `run.sh` now waits
@@ -577,7 +596,11 @@ Re-running must be safe and never clobber user edits:
   probe flags, both flags off, no `/healthz` location → no probe), `run_check` (no info file, no unit and no certbot → Nginx only,
   unit plus dangling `CERTBOT_BIN` link → problem), `parse_args --check`
   exit codes with `LOCK_FILE` untouched, and an executed `--check` never
-  reaching the root check; sourcing runs nothing, executed and piped runs
+  reaching the root check; `setup_sample_app` (`stub_sample_app`:
+  `APP_DIR` and `NGINX_ROOT` in the tmpdir, `download_template` records
+  its calls, `chown` a no-op: an empty dir gets all three templates,
+  `server.ts` or only `package.json` none, the latter byte-identical,
+  `SKIP_BUN_APP=1` none); sourcing runs nothing, executed and piped runs
   still do.
 - `release.bats`: `increment_version`, `version_gt`, `validate_version`
   (leading zeros refused) and `build-installer.sh`'s version check.
@@ -667,9 +690,22 @@ Re-running must be safe and never clobber user edits:
 - Commit prefixes seen in history: `fix(scope):`, `refactor:`, `ci:`,
   `release:`, `docs:`, `test(scope):`.
 - User docs: `README.md`, `CONTRIBUTING.md`, `RELEASE.md`, `SECURITY.md`
-  and `docs/compatibility.md`. Vulnerability reports go through GitHub
-  private vulnerability reporting (no email); README "Security" and
-  CONTRIBUTING link to `SECURITY.md`. Keep its supported-versions line
+  and `docs/*.md` (`docs/README.md` indexes them). Vulnerability reports
+  go through GitHub private vulnerability reporting (no email); README
+  "Security", `docs/security.md` and CONTRIBUTING link to `SECURITY.md`.
+- `docs/app.md` ("Your app") owns everything about running your own app
+  (contract, recipes, deploys, port, WebSockets, multiple apps); other
+  pages link to it. Its examples live in `docs/examples/` (`deploy.sh`,
+  `hono/`) and `test_custom_app` runs them, so keep the page's quoted
+  code in step with those files.
+- README is the overview (intro, Software Included, Out of scope, Quick
+  Start, Documentation index); operator depth lives in `docs/`, one
+  source of truth. Its stub headings `Health check`, `Re-running the
+  installer` (naming Upgrading from 0.3.x / 0.4.x), `Cloudflare` and
+  `Security` must stay: kept host files link them (the updater unit's
+  `Documentation=...#cloudflare`, `nginx-default.conf` comments, the
+  installer's 0.4.x note), and so does `docs/compatibility.md`
+  (`#out-of-scope`). Contributor test docs live in CONTRIBUTING.md. Keep its supported-versions line
   (latest release only) true, and in step with `docs/compatibility.md`
   "Support window".
 - `docs/compatibility.md` is the 1.x promise (SemVer from 1.0.0;
