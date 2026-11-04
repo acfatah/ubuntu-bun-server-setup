@@ -73,6 +73,32 @@ Code and state are kept apart:
   sudo chown -R root:root /var/www/app/dist
   ```
 
+## What the web root serves
+
+Nginx serves every file under the web root (`/var/www/app/dist`, or
+`/var/www/html` with `SKIP_BUN_APP=1`) to anyone, so put only build
+output there.
+
+- **Dotfiles answer 404.** Any path with a segment starting with a dot,
+  such as `/.env` or `/.git/config`, gets a 404 with the usual security
+  headers. `/.well-known/` stays open, for ACME webroot challenges and
+  `security.txt`.
+- **`/assets/` and `/api/` skip that check.** Nginx does not test regex
+  locations for `^~` prefixes, so `/assets/.env` would be served. Never
+  copy a project folder or a git clone into the web root.
+- **Hosts installed before 1.0** keep their site file, which has no such
+  block. Add it to `/etc/nginx/sites-available/default`, before
+  `location /`, then run `sudo nginx -t && sudo systemctl reload nginx`:
+
+  ```nginx
+  location ~ /\.(?!well-known/) {
+    return 404;
+  }
+  ```
+
+- **The stock site** (`SKIP_BUN_APP=1`) is Ubuntu's, not the
+  installer's, so it never gets the block. Add it there by hand too.
+
 ## Sandboxing
 
 `templates/bun-app.service` enables these systemd options. Each one only

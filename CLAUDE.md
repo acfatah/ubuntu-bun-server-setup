@@ -322,8 +322,11 @@ summary.
 - Security headers are `add_header ... always` at server level. Never add
   an `add_header` inside a location (e.g. `/assets/`): it drops every
   inherited header. `/assets/` gets its one `Cache-Control` from `expires`.
-- `setup_sample_app` chowns the web root to `root:root` (Nginx only
-  reads it).
+- `location ~ /\.(?!well-known/)` returns 404 for any dot segment
+  (`.env`, a `.git` dir) except `/.well-known/`. Regex, so `^~`
+  prefixes (`/api/`, `/assets/`) skip it; `docs/security.md` "What the
+  web root serves" says so. `setup_sample_app` chowns the web root to
+  `root:root` (Nginx only reads it).
 - `#include snippets/cloudflare-only.conf;` ships commented out (see
   Cloudflare below).
 
@@ -442,7 +445,8 @@ Re-running must be safe and never clobber user edits:
 - Scenarios: `test_root_guard` (non-root fails), `test_default` (full
   install, `curl` expects `"Hello Bun"` and `/api/x` → `"path":"/api/x"`,
   security headers, one `Cache-Control` on `/assets/`, web root and
-  `index.html` `root:root`, env file `600` and
+  `index.html` `root:root`, `/.env` and a dot-dir config 404 with the
+  headers and `/.well-known/t.txt` 200, env file `600` and
   in the process environ, `Connection: upgrade` only on upgrade requests
   (a `bun -e` probe replaces `bun-app` at the end), service runs as
   `bun-app`, code read-only, state dir writable, Bun only
