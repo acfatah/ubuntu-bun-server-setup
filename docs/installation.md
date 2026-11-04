@@ -1,14 +1,16 @@
 # Installation
 
 How to install: prerequisites, the ways to run the installer, pinned
-and development channels, where templates come from, and which Bun it
-installs. The first install command is in the
-[README Quick Start](../README.md#quick-start).
+and development channels, where templates come from, which Bun it
+installs, and how to install without direct internet access. The first
+install command is in the [README Quick Start](../README.md#quick-start).
 
 ## Prerequisites
 
 - Ubuntu 22.04 or later, run as root or with sudo. Older releases are refused before any package is installed.
-- Internet access for package and snap installs.
+- Internet access for package and snap installs, or mirrors and a
+  proxy; see [Air-gapped and proxied
+  installs](#air-gapped-and-proxied-installs).
 - A usable snapd, unless `SKIP_CERTBOT=1`. Certbot comes only from the
   snap, so a host where snapd is masked, or not installed and not
   installable through apt (removed from the sources or pinned away), is
@@ -129,6 +131,104 @@ GitHub.
 sudo bash install.sh BUN_VERSION=1.3.0
 sudo BUN_VERSION=latest bash install.sh
 ```
+
+## Air-gapped and proxied installs
+
+Every download the installer and the Cloudflare updater make, and what
+replaces it on a host without direct internet access:
+
+| What | From | Mirror or skip |
+| --- | --- | --- |
+| Ubuntu packages | the apt sources on the host | a local apt mirror in the host's apt sources |
+| snapd's snaps and Certbot | the snap store | `SKIP_CERTBOT=1` (no snap mirror) |
+| Templates | `raw.githubusercontent.com`, the installer's ref | `TEMPLATE_BASE_URL=file:///...` or `https://` mirror |
+| Bun zip and `SHASUMS256.txt` | `github.com/oven-sh/bun` releases | `BUN_DOWNLOAD_BASE_URL=file:///...` or `https://` mirror |
+| `BUN_VERSION=latest` lookup | `github.com`, always | use the pin or `BUN_VERSION=X.Y.Z` |
+| Cloudflare IP lists | `www.cloudflare.com/ips-v4`, `ips-v6` | `CLOUDFLARE_IPS_SOURCE=<dir>`, or `SKIP_CLOUDFLARE=1` |
+| The installer itself | GitHub Releases | download it once, copy it over |
+
+### No internet access
+
+1. **Point apt at a local mirror** of the Ubuntu archive (and the
+   security pocket), so `apt-get update` and the base packages work.
+2. **Skip Certbot** with `SKIP_CERTBOT=1`. Certbot comes only from the
+   snap store; get certificates another way, or install it later when
+   the host can reach the store.
+3. **Copy the release installer and its templates.** Take `install.sh`
+   from a release, and the `templates/` directory of the same tag (for
+   example from `git clone --branch vX.Y.Z`). A release installer checks
+   `file://` templates against its built-in sums, as it does for
+   downloads. Keep `install.sh` out of the directory that holds
+   `templates/`: a `templates/` next to the script is used as is,
+   without that check.
+4. **Mirror the pinned Bun zip** in the release layout:
+   `<dir>/bun-v<version>/bun-linux-x64.zip` (or `-x64-baseline`,
+   `-aarch64`). The pinned zip needs no `SHASUMS256.txt`; another
+   `BUN_VERSION=X.Y.Z` needs that file next to the zip. Never use
+   `latest`: it always asks GitHub.
+5. **Give the Cloudflare lists from a directory** holding `ips-v4` and
+   `ips-v6`, or skip Cloudflare support with `SKIP_CLOUDFLARE=1`.
+6. **Run it from the file:**
+
+   ```bash
+   # install.sh in the current directory, the mirrors under /opt/bun-installer
+   sudo TEMPLATE_BASE_URL=file:///opt/bun-installer/templates \
+     BUN_DOWNLOAD_BASE_URL=file:///opt/bun-installer/bun \
+     CLOUDFLARE_IPS_SOURCE=/opt/bun-installer/cloudflare \
+     bash install.sh SKIP_CERTBOT=1
+   ```
+
+`CLOUDFLARE_IPS_SOURCE` set for the installer only reaches its first
+fetch. The daily timer runs the updater as a systemd unit, with its own
+environment; give it the directory in a drop-in, outside `/root` and
+`/home` (the unit hides both):
+
+```bash
+sudo systemctl edit cloudflare-update-ips.service
+# [Service]
+# Environment=CLOUDFLARE_IPS_SOURCE=/opt/bun-installer/cloudflare
+```
+
+Refresh the files in that directory yourself; the updater only reads
+them and checks them as it checks a fetch (see Cloudflare,
+[Updates](cloudflare.md#updates)).
+
+### Behind a proxy
+
+`sudo` resets the environment (Ubuntu's `/etc/sudoers` keeps no proxy
+variables), so put the proxy variables after `sudo`, in the piped form
+too:
+
+```bash
+curl -fsSL https://github.com/acfatah/ubuntu-bun-server-setup/releases/latest/download/install.sh \
+  | sudo https_proxy=http://proxy:3128 http_proxy=http://proxy:3128 \
+    no_proxy=127.0.0.1,localhost bash
+```
+
+- **apt and curl read them.** Use the lowercase names: curl ignores an
+  uppercase `HTTP_PROXY`.
+- **Set `no_proxy=127.0.0.1,localhost`.** With `http_proxy` set, the
+  summary's `/healthz` probe to `http://127.0.0.1` goes to the proxy
+  too, and fails.
+- **snapd ignores the installer's environment.** It needs its own
+  proxy setting before the Certbot snap can install. Where snapd is
+  already installed (Ubuntu's server and cloud images), set it first.
+  Where it is not, run once with `SKIP_CERTBOT=1`, install snapd with
+  apt, set the proxy, then re-run without the toggle:
+
+  ```bash
+  sudo snap set system proxy.https=http://proxy:3128
+  sudo snap set system proxy.http=http://proxy:3128
+  ```
+
+- **The Cloudflare updater** runs from its timer, without your shell's
+  variables. Give it the proxy in a drop-in:
+
+  ```bash
+  sudo systemctl edit cloudflare-update-ips.service
+  # [Service]
+  # Environment=https_proxy=http://proxy:3128
+  ```
 
 ---
 
