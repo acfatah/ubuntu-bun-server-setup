@@ -707,6 +707,21 @@ Re-running must be safe and never clobber user edits:
   pages link to it. Its examples live in `docs/examples/` (`deploy.sh`,
   `hono/`) and `test_custom_app` runs them, so keep the page's quoted
   code in step with those files.
+- What the later pages own: `architecture.md` (install flow table,
+  units, Nginx file layout, files and re-runs; it links `app.md`
+  "Request flow" instead of repeating it), `troubleshooting.md`
+  (symptom with the exact message, cause, fix; every message quoted
+  must match `install.sh` or the updater, so a reworded message means
+  editing it), `upgrading.md` (moving to a newer release, a summary of
+  `compatibility.md`'s support window, which stays the authority, and
+  the known gaps). `configuration.md` opens with the reference table of
+  every setting; `installation.md` "Air-gapped and proxied installs"
+  lists every network fetch (a new download means a row there);
+  `operations.md` holds the TLS, Bun upgrade, restart and backup
+  runbooks; `security.md` opens with the threat model.
+- Page order (index, README's list and the footer chain): Installation,
+  Configuration, Architecture, Operations, Your app, Cloudflare,
+  Security, Troubleshooting, Upgrading and support, Compatibility.
 - README is the overview (intro, Software Included, Out of scope, Quick
   Start, Documentation index); operator depth lives in `docs/`, one
   source of truth. Its stub headings `Health check`, `Re-running the
