@@ -1,11 +1,55 @@
 # Security
 
-How the installed services are confined: the service user, the
-environment file, the filesystem layout, the systemd sandbox and limits
-of both units, and how to customise and troubleshoot them.
+What the installer trusts and what the installed host exposes, then how
+the installed services are confined: the service user, the environment
+file, the filesystem layout, the systemd sandbox and limits of both
+units, and how to customise and troubleshoot them.
 
 To report a vulnerability, see [SECURITY.md](../SECURITY.md); please do not
 open a public issue.
+
+## Threat model
+
+**The installer** runs as root and downloads code. What it checks:
+
+| Download | Checked against | Trust rests on |
+| --- | --- | --- |
+| Templates, release installer | SHA-256 sums built into the installer | the installer you ran |
+| Templates, `main` (dev channel) or another `TEMPLATE_REF` | nothing | GitHub and TLS |
+| Templates, a `templates/` next to `install.sh` | nothing | whoever wrote that directory |
+| Bun, pinned version | SHA-256 sums built into the installer | the installer you ran |
+| Bun, `BUN_VERSION=X.Y.Z` or `latest` | the release's `SHASUMS256.txt` | GitHub and TLS: sums and zip come from the same place |
+| Ubuntu packages | apt's signed indexes | Ubuntu's archive keys |
+| Certbot | the snap store's signatures | Canonical's snap store |
+| Cloudflare IP ranges | a strict CIDR check, a minimum count | Cloudflare and TLS |
+
+- **Every download uses TLS 1.2 or later** and follows redirects to
+  `https://` only; `http://` mirrors are refused.
+- **A release installer is as trustworthy as its download.** Check it
+  against the release's `SHA256SUMS` (see [Pin and check a
+  version](installation.md#pin-and-check-a-version)). Both files come
+  from GitHub Releases: there is no build provenance and no signed tag
+  yet, so the check catches a broken download, not a compromised
+  release.
+
+**The installed host** exposes:
+
+- **Nginx on 80** (and 443 after Certbot), the only service open to
+  the network besides SSH. UFW rate-limits the SSH port(s) and denies
+  everything else incoming.
+- **Bun on `127.0.0.1:3000` only,** reached through Nginx, run as the
+  unprivileged `bun-app` with no capabilities and read-only code.
+- **The Cloudflare updater** runs as root, sandboxed, once a day.
+- **Plain HTTP until you run Certbot.** The installer gets no
+  certificate, and the HSTS header ships commented out in the site. See
+  Operations, [TLS with Certbot](operations.md#tls-with-certbot).
+- **Snaps update on their own.** The Certbot snap refreshes outside any
+  change window unless you hold it; see `SKIP_UPGRADE` in
+  [Configuration](configuration.md#environment-toggles).
+- **"Cloudflare only" admits other Cloudflare customers.** It checks
+  that a request comes from a Cloudflare edge, not from your zone. See
+  Cloudflare, [Other Cloudflare
+  customers](cloudflare.md#other-cloudflare-customers).
 
 ## Service user
 
@@ -45,6 +89,7 @@ Code and state are kept apart:
 | DB, uploads, state | `/var/lib/bun-app` (= `/srv/app/data`) | bun-app | read-write     |
 | Cache              | `/var/cache/bun-app`                  | bun-app | read-write     |
 | Installer log      | `/var/log/bun-installer.log` (rotated by `/etc/logrotate.d/bun-installer`) | root:adm | none |
+| Web root           | `/var/www/app/dist`                   | root    | none (Nginx reads it) |
 
 - `/var/lib/bun-app` and `/var/cache/bun-app` are created and owned by
   systemd (`StateDirectory=`, `CacheDirectory=`). The state dir is mode
@@ -63,6 +108,40 @@ Code and state are kept apart:
 - The data outlives code deploys: wiping and replacing `/srv/app` never
   touches `/var/lib/bun-app`. Back up that one directory. See [Your
   app](app.md) for deploy recipes that keep it.
+- The web root is owned by root (directories `755`, files `644`), so an
+  Nginx worker can read the files it serves but not change them. Hosts
+  installed before 1.0 have it owned by `www-data`; re-runs leave it as
+  it is. Fix it once with:
+
+  ```bash
+  sudo chown -R root:root /var/www/app/dist
+  ```
+
+## What the web root serves
+
+Nginx serves every file under the web root (`/var/www/app/dist`, or
+`/var/www/html` with `SKIP_BUN_APP=1`) to anyone, so put only build
+output there.
+
+- **Dotfiles answer 404.** Any path with a segment starting with a dot,
+  such as `/.env` or `/.git/config`, gets a 404 with the usual security
+  headers. `/.well-known/` stays open, for ACME webroot challenges and
+  `security.txt`.
+- **`/assets/` and `/api/` skip that check.** Nginx does not test regex
+  locations for `^~` prefixes, so `/assets/.env` would be served. Never
+  copy a project folder or a git clone into the web root.
+- **Hosts installed before 1.0** keep their site file, which has no such
+  block. Add it to `/etc/nginx/sites-available/default`, before
+  `location /`, then run `sudo nginx -t && sudo systemctl reload nginx`:
+
+  ```nginx
+  location ~ /\.(?!well-known/) {
+    return 404;
+  }
+  ```
+
+- **The stock site** (`SKIP_BUN_APP=1`) is Ubuntu's, not the
+  installer's, so it never gets the block. Add it there by hand too.
 
 ## Sandboxing
 
@@ -216,6 +295,6 @@ systemd-analyze security bun-app
 
 <div align="center">
 
-[← Cloudflare](cloudflare.md) · [Documentation index](README.md) · [Compatibility →](compatibility.md)
+[← Cloudflare](cloudflare.md) · [Documentation index](README.md) · [Troubleshooting →](troubleshooting.md)
 
 </div>

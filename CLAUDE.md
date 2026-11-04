@@ -273,8 +273,10 @@ summary.
   other value exits 1 with `Invalid <NAME>=<value>` before the root check.
   Adding a toggle means extending both loops in `parse_args`, `USAGE`,
   `print_help`, the header comment, the three toggle loops in
-  `install.bats`, the toggle table in `docs/compatibility.md` and the
-  toggle list in `SECURITY.md` "What to include".
+  `install.bats`, the toggle table in `docs/compatibility.md`, the
+  reference table in `docs/configuration.md` (one row per setting and
+  flag, nothing beyond the stable surface) and the toggle list in
+  `SECURITY.md` "What to include".
 - `FULL_UPGRADE=1` swaps `apt-get upgrade` for `full-upgrade`. The summary
   prints a reboot hint when `/var/run/reboot-required` exists (a note, not
   a problem: the return value is unchanged).
@@ -322,6 +324,11 @@ summary.
 - Security headers are `add_header ... always` at server level. Never add
   an `add_header` inside a location (e.g. `/assets/`): it drops every
   inherited header. `/assets/` gets its one `Cache-Control` from `expires`.
+- `location ~ /\.(?!well-known/)` returns 404 for any dot segment
+  (`.env`, a `.git` dir) except `/.well-known/`. Regex, so `^~`
+  prefixes (`/api/`, `/assets/`) skip it; `docs/security.md` "What the
+  web root serves" says so. `setup_sample_app` chowns the web root to
+  `root:root` (Nginx only reads it).
 - `#include snippets/cloudflare-only.conf;` ships commented out (see
   Cloudflare below).
 
@@ -439,7 +446,9 @@ Re-running must be safe and never clobber user edits:
   check each status explicitly there.
 - Scenarios: `test_root_guard` (non-root fails), `test_default` (full
   install, `curl` expects `"Hello Bun"` and `/api/x` → `"path":"/api/x"`,
-  security headers, one `Cache-Control` on `/assets/`, env file `600` and
+  security headers, one `Cache-Control` on `/assets/`, web root and
+  `index.html` `root:root`, `/.env` and a dot-dir config 404 with the
+  headers and `/.well-known/t.txt` 200, env file `600` and
   in the process environ, `Connection: upgrade` only on upgrade requests
   (a `bun -e` probe replaces `bun-app` at the end), service runs as
   `bun-app`, code read-only, state dir writable, Bun only
@@ -698,6 +707,21 @@ Re-running must be safe and never clobber user edits:
   pages link to it. Its examples live in `docs/examples/` (`deploy.sh`,
   `hono/`) and `test_custom_app` runs them, so keep the page's quoted
   code in step with those files.
+- What the later pages own: `architecture.md` (install flow table,
+  units, Nginx file layout, files and re-runs; it links `app.md`
+  "Request flow" instead of repeating it), `troubleshooting.md`
+  (symptom with the exact message, cause, fix; every message quoted
+  must match `install.sh` or the updater, so a reworded message means
+  editing it), `upgrading.md` (moving to a newer release, a summary of
+  `compatibility.md`'s support window, which stays the authority, and
+  the known gaps). `configuration.md` opens with the reference table of
+  every setting; `installation.md` "Air-gapped and proxied installs"
+  lists every network fetch (a new download means a row there);
+  `operations.md` holds the TLS, Bun upgrade, restart and backup
+  runbooks; `security.md` opens with the threat model.
+- Page order (index, README's list and the footer chain): Installation,
+  Configuration, Architecture, Operations, Your app, Cloudflare,
+  Security, Troubleshooting, Upgrading and support, Compatibility.
 - README is the overview (intro, Software Included, Out of scope, Quick
   Start, Documentation index); operator depth lives in `docs/`, one
   source of truth. Its stub headings `Health check`, `Re-running the

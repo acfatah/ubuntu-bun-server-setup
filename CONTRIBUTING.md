@@ -317,6 +317,7 @@ ubuntu-bun-server-setup/
 ├── docs/                      # Operator documentation
 │   ├── README.md              # Index of the pages
 │   ├── app.md                 # Your app: contract, recipes, deploys
+│   ├── architecture.md        # Install flow, units, Nginx files, re-runs
 │   ├── examples/              # Run by test_custom_app; keep app.md in step
 │   │   ├── deploy.sh          # Deploy over SSH: in place or release dirs
 │   │   └── hono/              # Example app replacing the sample
@@ -325,10 +326,12 @@ ubuntu-bun-server-setup/
 │   │       └── src/index.ts
 │   ├── cloudflare.md          # Real client IP, updater
 │   ├── compatibility.md       # Stability promise and support window
-│   ├── configuration.md       # Environment toggles
-│   ├── installation.md        # Install options, channels, Bun version
-│   ├── operations.md          # Health check, re-runs, upgrades
-│   └── security.md            # Service user, sandbox, limits
+│   ├── configuration.md       # Settings reference, environment toggles
+│   ├── installation.md        # Install options, channels, Bun, offline
+│   ├── operations.md          # Health check, re-runs, TLS, backups
+│   ├── security.md            # Threat model, service user, sandbox
+│   ├── troubleshooting.md     # Failure messages, causes and fixes
+│   └── upgrading.md           # Newer releases, support, known gaps
 ├── install.sh                 # Main installation script (dev channel)
 ├── Makefile                   # Build and test automation
 ├── README.md                  # Project overview

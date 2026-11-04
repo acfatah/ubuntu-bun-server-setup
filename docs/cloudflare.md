@@ -63,6 +63,49 @@ connecting address (`$realip_remote_addr`), not the restored client IP.
 - In skip mode, Ubuntu's stock site has no such line; add it yourself to
   any server block.
 
+### Other Cloudflare customers
+
+"Cloudflare only" admits every Cloudflare edge, and every Cloudflare
+customer sends traffic from those edges. Anyone can point their own
+Cloudflare zone, or a Worker, at your server's IP and reach it through
+an edge, past your zone's WAF and rules. To admit only your own zone,
+add one of these:
+
+- **Authenticated Origin Pulls** (recommended): Cloudflare presents a
+  client certificate on every request, and Nginx refuses connections
+  without it. It needs HTTPS on the origin (SSL/TLS mode Full (strict);
+  see [TLS with Certbot](operations.md#tls-with-certbot)). Turn it on
+  in the zone, save Cloudflare's origin-pull CA certificate outside
+  `/etc/nginx/cloudflare/` (the updater owns that directory), and add
+  to the HTTPS server block:
+
+  ```nginx
+  ssl_client_certificate /etc/nginx/certs/cloudflare-origin-pull-ca.pem;
+  ssl_verify_client on;
+  ```
+
+- **A secret header:** a Cloudflare Transform Rule (Modify Request
+  Header) sets a header with a long random value on every request to
+  your zone, and the site refuses requests without it. Requests from the
+  host itself stay allowed, so `--check` keeps working. In the server
+  block, after the `cloudflare-only.conf` include:
+
+  ```nginx
+  set $origin_ok 0;
+  if ($http_x_origin_auth = "long-random-secret") {
+    set $origin_ok 1;
+  }
+  if ($realip_remote_addr = 127.0.0.1) {
+    set $origin_ok 1;
+  }
+  if ($origin_ok = 0) {
+    return 403;
+  }
+  ```
+
+  Treat the value as a password: keep it out of git, and change it in
+  both places if it leaks.
+
 ## Updates
 
 `cloudflare-update-ips.timer` runs the updater daily (randomised by up to an

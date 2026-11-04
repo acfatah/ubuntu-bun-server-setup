@@ -74,6 +74,26 @@ headers=$(curl -fsSI http://127.0.0.1/assets/t.css)
 assert_equals "Cache-Control lines" 1 "$(grep -ci '^Cache-Control:' <<<"$headers")"
 grep -qi '^X-Content-Type-Options: nosniff' <<<"$headers"
 
+# The web root and its files are owned by root: Nginx only reads them
+assert_equals "web root owner" root:root "$(stat -c %U:%G /var/www/app/dist)"
+assert_equals "index.html owner" root:root "$(stat -c %U:%G /var/www/app/dist/index.html)"
+
+# Dotfiles under the web root answer 404 with the security headers;
+# /.well-known/ is still served (ACME, security.txt)
+mkdir -p /var/www/app/dist/.git /var/www/app/dist/.well-known
+echo 'SECRET=x' >/var/www/app/dist/.env
+echo '[core]' >/var/www/app/dist/.git/config
+echo 'well-known ok' >/var/www/app/dist/.well-known/t.txt
+for path in /.env /.git/config; do
+  assert_equals "status of $path" 404 \
+    "$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1$path")"
+  headers=$(curl -sSI "http://127.0.0.1$path")
+  grep -qi '^X-Content-Type-Options: nosniff' <<<"$headers"
+done
+assert_equals "/.well-known/t.txt body" "well-known ok" \
+  "$(curl -fsS http://127.0.0.1/.well-known/t.txt)"
+rm -rf /var/www/app/dist/.env /var/www/app/dist/.git /var/www/app/dist/.well-known
+
 # Bun listens on loopback only; clients go through Nginx (S7)
 listeners=$(ss -Hltn 'sport = :3000' | awk '{print $4}')
 assert_equals "port 3000 listeners" "127.0.0.1:3000" "$listeners"

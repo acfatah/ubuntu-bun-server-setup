@@ -1,8 +1,9 @@
 # Operations
 
 Running an installed host: health checks and logs, re-running the
-installer and what it keeps, and upgrading from older releases. To
-deploy your own app, see [Your app](app.md).
+installer and what it keeps, upgrading from older releases, TLS with
+Certbot, moving to another Bun, restarts and backups. To deploy your own
+app, see [Your app](app.md).
 
 ## Health check
 
@@ -166,6 +167,100 @@ for f in 00-header 10-help-text; do
 done
 ```
 
+## TLS with Certbot
+
+The site serves plain HTTP on port 80 until you get a certificate.
+Certbot's Nginx plugin adds HTTPS to the installer's site:
+
+1. **Point DNS at the host** (A and AAAA records), and wait until the
+   name resolves to it. Behind Cloudflare, the proxied record works.
+2. **Name the site.** In `/etc/nginx/sites-available/default`, replace
+   `server_name _;` with your names, so Certbot finds the block:
+
+   ```nginx
+   server_name example.com www.example.com;
+   ```
+
+   The site is kept on re-run while its marker line stays, so the edit
+   survives.
+3. **Get the certificate:**
+
+   ```bash
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo certbot --nginx -d example.com -d www.example.com
+   ```
+
+   Certbot edits the site: it adds `listen 443 ssl` and a redirect from
+   HTTP.
+4. **Check renewal.** The Certbot snap renews from its own timer
+   (`snap.certbot.renew.timer`); nothing to add. Test it once:
+
+   ```bash
+   sudo certbot renew --dry-run
+   ```
+
+5. **Turn on HSTS** once HTTPS works for every name the site serves:
+   uncomment the `Strict-Transport-Security` line in the site, then
+   `sudo nginx -t && sudo systemctl reload nginx`. Browsers then refuse
+   plain HTTP for a year, so do it last.
+
+- **Behind Cloudflare,** set the zone's SSL/TLS mode to **Full
+  (strict)**. "Flexible" sends Cloudflare's requests over plain HTTP,
+  and the redirect Certbot adds then loops.
+- **With `SKIP_CERTBOT=1`,** use your own ACME client, or terminate TLS
+  at a load balancer.
+
+## Upgrading Bun
+
+- **To the pin of a newer release:** run that release's installer. It
+  replaces `/usr/local/bin/bun` only after the new zip passes its
+  checksum.
+- **To another version:** `sudo bash install.sh BUN_VERSION=X.Y.Z`, or
+  `BUN_VERSION=latest`. A later run without it goes back to the pin;
+  see [Bun version](installation.md#bun-version).
+- **The app picks it up at once:** every run restarts `bun-app`. Your
+  dependencies stay as installed; run `bun install` in `/srv/app` if a
+  Bun release changes them.
+
+## Restarts
+
+```bash
+sudo systemctl restart bun-app                 # after a deploy or env change
+sudo nginx -t && sudo systemctl reload nginx   # after a site edit
+```
+
+- **`reload`, not `restart`, for Nginx.** A reload keeps open
+  connections and refuses a broken config; `nginx -t` shows the error
+  first.
+- **A re-run restarts both** Nginx and `bun-app`, with a short gap in
+  service. Run it in a quiet window on a busy host.
+- **`/etc/bun-app.env` changes** need a `bun-app` restart; the unit
+  reads the file only at start.
+
+## Backups
+
+Back up these; everything else the installer can recreate:
+
+| Path | Holds |
+| --- | --- |
+| `/var/lib/bun-app` | the app's database, uploads and other state |
+| `/etc/bun-app.env` | the app's settings and secrets |
+| `/srv/app` | the app code, unless it is in git and deployed from there |
+| `/etc/nginx/` | your site edits and the Certbot changes |
+| `/etc/letsencrypt/` | certificates and the Certbot account |
+| `/var/lib/app-info/application.info` | what the host runs, for the record |
+
+- **Stop the app or snapshot the disk** for a consistent copy of a
+  database in `/var/lib/bun-app`, or use the database's own backup
+  command (SQLite's `.backup`, `pg_dump`).
+- **Keep `/etc/bun-app.env` private:** it is root-only (`600`) on the
+  host; the backup should be too.
+
+## Deploying
+
+Deploy recipes, from `rsync` to release dirs with rollback, are in Your
+app, [Deploying](app.md#deploying).
+
 ## Your own app
 
 Extending or replacing the sample app, deploying, the port and
@@ -176,6 +271,6 @@ in [Your app](app.md).
 
 <div align="center">
 
-[← Configuration](configuration.md) · [Documentation index](README.md) · [Your app →](app.md)
+[← Architecture](architecture.md) · [Documentation index](README.md) · [Your app →](app.md)
 
 </div>

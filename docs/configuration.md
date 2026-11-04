@@ -1,7 +1,39 @@
 # Configuration
 
-The toggles and `KEY=VALUE` arguments the installer accepts. Template
-and Bun download sources are in [Installation](installation.md).
+Every setting and flag the installer accepts, in one table, then the
+toggles in detail. Template and Bun download sources are explained in
+[Installation](installation.md).
+
+## Reference
+
+| Name | Set as | Default | Accepted | Details |
+| --- | --- | --- | --- | --- |
+| `SKIP_BUN_APP` | env or argument | off | `1` on; empty, `0`, `false` off | [below](#environment-toggles) |
+| `SKIP_CLOUDFLARE` | env or argument | off | `1` on; empty, `0`, `false` off | [below](#environment-toggles) |
+| `FULL_UPGRADE` | env or argument | off | `1` on; empty, `0`, `false` off | [below](#environment-toggles) |
+| `SKIP_UPGRADE` | env or argument | off | `1` on; empty, `0`, `false` off | [below](#environment-toggles) |
+| `SKIP_CERTBOT` | env or argument | off | `1` on; empty, `0`, `false` off | [below](#environment-toggles) |
+| `SKIP_UFW` | env or argument | off | `1` on; empty, `0`, `false` off | [below](#environment-toggles) |
+| `BUN_VERSION` | env or argument | the pinned Bun | `X.Y.Z`, `latest` | [Bun version](installation.md#bun-version) |
+| `TEMPLATE_REF` | env only | the installer's ref (`main` on the dev channel, the tag in a release) | letters, digits, `.` `_` `/` `-`; no `..` | [Template source](installation.md#template-source) |
+| `TEMPLATE_BASE_URL` | env only | GitHub, at `TEMPLATE_REF` (a `templates/` next to `install.sh` wins) | `https://` or `file://` URL | [Template source](installation.md#template-source) |
+| `BUN_DOWNLOAD_BASE_URL` | env only | Bun's GitHub releases | `https://` or `file://` URL | [Bun version](installation.md#bun-version) |
+| `CLOUDFLARE_IPS_SOURCE` | env, for the Cloudflare updater | fetch from Cloudflare | a directory with `ips-v4` and `ips-v6` | [Cloudflare updates](cloudflare.md#updates) |
+| `--check`, `-c` | flag | | | [Health check](operations.md#health-check) |
+| `--version`, `-V` | flag | | | [Pin and check a version](installation.md#pin-and-check-a-version) |
+| `--help`, `-h` | flag | | | prints the toggles and settings |
+
+- **Arguments** are `KEY=VALUE` words after `install.sh` (after `bash -s
+  --` in the piped form). With `sudo`, put environment variables after
+  it: `sudo SKIP_UFW=1 bash install.sh`.
+- **Checked before anything runs.** An unknown argument, a toggle value
+  other than those above, a bad `BUN_VERSION`, `TEMPLATE_REF`,
+  `TEMPLATE_BASE_URL` or `BUN_DOWNLOAD_BASE_URL`, and `SKIP_UPGRADE=1`
+  with `FULL_UPGRADE=1` all exit 1 before the root check, so nothing on
+  the host changes.
+- **Flags** need no root and exit without installing: `--version` and
+  `--help` with 0, `--check` with 0 (healthy) or 1 (problems, or no
+  installation).
 
 ## Environment toggles
 
@@ -72,6 +104,6 @@ sudo bash install.sh BUN_VERSION=latest
 
 <div align="center">
 
-[← Installation](installation.md) · [Documentation index](README.md) · [Operations →](operations.md)
+[← Installation](installation.md) · [Documentation index](README.md) · [Architecture →](architecture.md)
 
 </div>

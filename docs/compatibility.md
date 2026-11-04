@@ -156,6 +156,6 @@ What the installer does not cover is listed in the README's
 
 <div align="center">
 
-[← Security](security.md) · [Documentation index](README.md)
+[← Upgrading and support](upgrading.md) · [Documentation index](README.md)
 
 </div>
