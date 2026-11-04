@@ -145,6 +145,9 @@ Operator documentation lives in [docs/](docs/README.md):
 - [Security](docs/security.md): threat model, service user,
   environment file, filesystem layout, what the web root serves, systemd
   sandbox and limits, troubleshooting.
+- [Troubleshooting](docs/troubleshooting.md): install failures, apt and
+  snapd, the SSH rate limit, `--check` problems, client IPs, Cloudflare
+  fetches.
 - [Compatibility](docs/compatibility.md): the 1.x stability promise and
   support window.
 

@@ -295,6 +295,6 @@ systemd-analyze security bun-app
 
 <div align="center">
 
-[← Cloudflare](cloudflare.md) · [Documentation index](README.md) · [Compatibility →](compatibility.md)
+[← Cloudflare](cloudflare.md) · [Documentation index](README.md) · [Troubleshooting →](troubleshooting.md)
 
 </div>
