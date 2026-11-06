@@ -308,6 +308,7 @@ ubuntu-bun-server-setup/
 ├── .editorconfig              # Indentation and shfmt options
 ├── .shellcheckrc              # shellcheck options
 ├── .github/
+│   ├── assets/sponsors/       # Sponsor logos for the README
 │   ├── dependabot.yml         # Weekly GitHub Actions updates
 │   └── workflows/
 │       ├── ci.yml             # Lint, unit and release tests on every PR

@@ -722,8 +722,10 @@ Re-running must be safe and never clobber user edits:
 - Page order (index, README's list and the footer chain): Installation,
   Configuration, Architecture, Operations, Your app, Cloudflare,
   Security, Troubleshooting, Upgrading and support, Compatibility.
-- README is the overview (intro, Software Included, Out of scope, Quick
-  Start, Documentation index); operator depth lives in `docs/`, one
+- README is the overview (header with the sponsor line: logo from
+  `.github/assets/sponsors/`, linking the sponsor's site; Introduction,
+  Software Included, Out of scope, Quick Start, Documentation index);
+  operator depth lives in `docs/`, one
   source of truth. Its stub headings `Health check`, `Re-running the
   installer` (naming Upgrading from 0.3.x / 0.4.x), `Cloudflare` and
   `Security` must stay: kept host files link them (the updater unit's

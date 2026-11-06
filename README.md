@@ -18,7 +18,13 @@
         alt="GitHub last commit (by committer)"
         src="https://img.shields.io/github/last-commit/acfatah/ubuntu-bun-server-setup?display_timestamp=committer&style=flat-square"></a>
   </p>
+
+  <h3>Sponsored by</h3>
+  <a href="https://grandwizardtech.com/"
+    ><img width="250" src=".github/assets/sponsors/grandwizardtech.png" alt="Grand Wizard Tech" title="Grand Wizard Tech"/></a>
 </div>
+
+## Introduction
 
 Bootstrap an opinionated, production-ready Bun application environment for Ubuntu.
 
