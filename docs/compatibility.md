@@ -62,7 +62,10 @@ argument:
   state in `/var/lib/bun-app` (also `/srv/app/data`), cache in
   `/var/cache/bun-app`.
 - **Service:** `bun-app.service`, run by the system user `bun-app`, with
-  `/etc/bun-app.env` holding `INSTANCE_ID` and `PORT`.
+  `/etc/bun-app.env` holding `INSTANCE_ID` and `PORT`. The app listens on
+  `127.0.0.1:3000`, the port `snippets/bun-proxy.conf` proxies to.
+- **Web root:** `/var/www/app/dist`, or `/var/www/html` with
+  `SKIP_BUN_APP=1`.
 - **Bun:** `/usr/local/bin/bun`, with `bunx` linked to it.
 - **Cloudflare:** `/usr/local/sbin/cloudflare-update-ips`, run by
   `cloudflare-update-ips.service` and `cloudflare-update-ips.timer`, and
@@ -79,6 +82,9 @@ argument:
 - **Installer:** the log `/var/log/bun-installer.log`, its logrotate rule
   `/etc/logrotate.d/bun-installer`, and the lock
   `/run/bun-installer.lock`.
+- **Login message:** `/etc/update-motd.d/00-custom`, with Ubuntu's
+  `00-header` and `10-help-text` diverted to
+  `/var/lib/bun-installer/motd-disabled/`.
 
 ### Re-run contract
 
