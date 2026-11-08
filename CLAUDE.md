@@ -558,11 +558,31 @@ Re-running must be safe and never clobber user edits:
   container's own IP refused; `ReadonlyRootfs`, user `bun`, `CapDrop`
   `ALL`; a re-run keeps the site (`cmp`) and `--check` names no `bun-app`
   or `healthz`; a `MESSAGE`-edited copy as `my-app:2` keeps the volume's
-  counter, then `my-app:1` serves the old message again).
+  counter, then `my-app:1` serves the old message again),
+  `test_astro_app` (follows `docs/cookbook/astro.md`: every installer
+  run uses `SKIP_UPGRADE=1 SKIP_CERTBOT=1`, then `setup_local_ssh`;
+  examples copied without `node_modules`, `dist` or `.astro`, built in
+  the container with `ASTRO_TELEMETRY_DISABLED=1`; `astro-static`
+  through the page's `rsync` and modes: marker on `/`, one
+  `Cache-Control` on its `/assets/` CSS; the page's link made before any
+  SSR deploy: a re-run exits 1 with the dangling-link message, no trap
+  or `Updating package lists` line, link unchanged; `HOST=127.0.0.1`
+  appended to the env file, `astro` deployed with `deploy.sh`:
+  `/healthz` `ok` with `no-store`, `/api/x` path, the prerendered page
+  through the link (also with `bun-app` stopped), `127.0.0.1:3000`
+  only, a cookie-jar session 1 → 2 → restart → 3 with files in
+  `/var/lib/bun-app/sessions` and no `ENOENT` in the journal; a re-run
+  keeps `package.json` (`cmp`), no `server.ts`, the link, `--check`
+  passes; the `0-initial` migration, a `MESSAGE`-edited build with
+  `--release` shows the new page, `--rollback` the old one).
 - Gotcha: Docker inside the e2e container needs `/var/lib/docker` and
   `/var/lib/containerd` on a tmpfs (overlay mounts fail on the
   container's overlay root; `docker.io` uses containerd's snapshotter),
   and `test_docker_app` pulls `oven/bun` from Docker Hub (rate limits).
+- Gotcha: `/workspace` is the live checkout, so a local `bun install`
+  or build in `docs/examples/astro*` leaves `node_modules`, `dist` and
+  `.astro` there (git-ignored). `test_astro_app` removes them from its
+  copies; a new test copying an example must do the same.
 - Gotcha: files a test wrote under `/tmp` vanished. Cause (confirmed):
   `docker exec` started the test while systemd still booted, and
   `systemd-tmpfiles-setup` emptied `/tmp` under it. `run.sh` now waits
