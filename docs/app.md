@@ -140,8 +140,9 @@ app.all("/api/*", (c) =>
   c.json({ message: MESSAGE, path: c.req.path, visits: countVisit.get()?.n })
 );
 
+// A container sets HOST=0.0.0.0; see the cookbook
 const server = Bun.serve({
-  hostname: "127.0.0.1",
+  hostname: process.env.HOST ?? "127.0.0.1",
   port: Number(process.env.PORT ?? 3000),
   fetch: app.fetch,
 });
@@ -209,6 +210,12 @@ app, unit, service user or proxy site:
   installs. Then add a site, or a `location` in the stock one, that proxies to
   `127.0.0.1:3000`. A later run without the toggle installs the managed
   site, snippet and sample, but never over an app already in `/srv/app`.
+
+### More setups
+
+The [Cookbook](cookbook/README.md) holds setups beyond these recipes,
+each with a tested example, such as [running your app in a
+container](cookbook/docker.md) behind the installer's Nginx.
 
 ## Build and dependencies
 

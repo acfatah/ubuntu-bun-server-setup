@@ -135,6 +135,8 @@ tests/docker/run.sh test_host_safety
 tests/docker/run.sh test_cloudflare
 tests/docker/run.sh test_release_build
 tests/docker/run.sh test_fail_loudly
+tests/docker/run.sh test_custom_app
+tests/docker/run.sh test_docker_app
 ```
 
 The `.sh` suffix is optional; both `test_default` and `test_default.sh` work. Several names run in one call, e.g. `tests/docker/run.sh test_root_guard test_default`. The runner runs every selected test even after one fails, then prints a pass/fail count and names each failed test; it exits non-zero if any failed.
@@ -180,6 +182,17 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work. Se
   prints), prunes old releases, survives an installer re-run and
   `--rollback`s to the previous release. Needs the npm registry for
   `bun install`.
+- `test_docker_app.sh` — runs what
+  [docs/cookbook/docker.md](docs/cookbook/docker.md) shows: a
+  `SKIP_BUN_APP=1` install, Docker inside the test container, the copied
+  proxy site, and `docs/examples/hono` built as an image and published on
+  `127.0.0.1:3000`. Checks `/healthz`, `/api/x` and its counter through
+  Nginx, that port 3000 is reachable on loopback only, the read-only and
+  `--cap-drop ALL` flags, that a re-run keeps the site and `--check`
+  skips the app, and that a new image keeps the volume's state and the
+  old one rolls back. Also fails when the Dockerfile's `oven/bun` tag
+  differs from `BUN_PINNED_VERSION`. Needs Docker Hub and the npm
+  registry.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
   `SKIP_BUN_APP=0`, edits installed files, checks a run is refused and
   changes nothing while the lock is held, re-runs, and checks the edits
@@ -246,6 +259,8 @@ When adding new functionality, please:
 1. Add a `tests/docker/scripts/test_<name>.sh` script; the runner picks up every `test_*.sh` automatically
 2. Put a `# Test: <label>` line right after the shebang; the runner prints it as the test name
 3. Source `common.sh` for `run_installer` and the `assert_*` helpers, and follow the existing test patterns
+
+A new [cookbook](docs/cookbook/README.md) page ships an example in `docs/examples/<name>/` and a Docker test that runs the page's steps against it. The page links `docs/app.md` "What the host expects" instead of restating the contract, sits outside the footer chain, and ends with a "Back to Your app" link.
 
 ## Code Style
 
@@ -319,14 +334,19 @@ ubuntu-bun-server-setup/
 │   ├── README.md              # Index of the pages
 │   ├── app.md                 # Your app: contract, recipes, deploys
 │   ├── architecture.md        # Install flow, units, Nginx files, re-runs
-│   ├── examples/              # Run by test_custom_app; keep app.md in step
+│   ├── examples/              # Run by test_custom_app and test_docker_app
 │   │   ├── deploy.sh          # Deploy over SSH: in place or release dirs
 │   │   └── hono/              # Example app replacing the sample
+│   │       ├── .dockerignore
+│   │       ├── Dockerfile     # Image for the cookbook's container page
 │   │       ├── bun.lock
 │   │       ├── package.json
 │   │       └── src/index.ts
 │   ├── cloudflare.md          # Real client IP, updater
 │   ├── compatibility.md       # Stability promise and support window
+│   ├── cookbook/              # Setups beyond the stock app, one page each
+│   │   ├── README.md          # Index of the recipes
+│   │   └── docker.md          # Run your app in a container
 │   ├── configuration.md       # Settings reference, environment toggles
 │   ├── installation.md        # Install options, channels, Bun, offline
 │   ├── operations.md          # Health check, re-runs, TLS, backups

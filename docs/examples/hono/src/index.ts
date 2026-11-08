@@ -1,5 +1,6 @@
 // Example app for docs/app.md: Hono on Bun, run by the bun-app unit.
-// tests/docker/scripts/test_custom_app.sh deploys exactly this file.
+// tests/docker/scripts/test_custom_app.sh deploys exactly this file, and
+// test_docker_app.sh builds it as an image (docs/cookbook/docker.md).
 import { Database } from "bun:sqlite";
 import { Hono } from "hono";
 
@@ -35,9 +36,10 @@ app.all("/api/*", (c) =>
 // Paths with no static file reach Bun through Nginx's @bun fallback
 app.notFound((c) => c.text(`${MESSAGE}: no route for ${c.req.path}`, 404));
 
-// Loopback only: clients reach Bun through Nginx
+// Loopback only: clients reach Bun through Nginx. A container sets
+// HOST=0.0.0.0: its own loopback is out of the published port's reach.
 const server = Bun.serve({
-  hostname: "127.0.0.1",
+  hostname: process.env.HOST ?? "127.0.0.1",
   port: Number(process.env.PORT ?? 3000),
   fetch: app.fetch,
 });
