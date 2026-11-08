@@ -33,15 +33,22 @@ under [The image](#the-image).
    `/var/www/app/dist`, not `/var/www/html`, because every skip-mode run
    writes an `index.html` into `/var/www/html` when none is there, and
    that file would answer `/` instead of your app.
-4. **Run the container,** published on loopback only. Secrets go in a
+4. **Build the image.** The [Hono example](../examples/hono/) ships a
+   `Dockerfile` (see [The image](#the-image)); from a clone of this
+   repo, or your own app laid out the same way:
+
+   ```bash
+   sudo docker build -t my-app:1.0.0 docs/examples/hono
+   ```
+
+5. **Run the container,** published on loopback only. Secrets go in a
    root `0600` env file:
 
    ```bash
    sudo install -m 600 /dev/null /etc/my-app.env   # then sudoedit it
    sudo docker run -d --name my-app --restart unless-stopped \
      -p 127.0.0.1:3000:3000 \
-     --env-file /etc/my-app.env -e PORT=3000 \
-     -e STATE_DIRECTORY=/data -v my-app-data:/data \
+     --env-file /etc/my-app.env -v my-app-data:/data \
      --read-only --tmpfs /tmp --cap-drop ALL \
      --security-opt no-new-privileges \
      my-app:1.0.0
@@ -50,24 +57,50 @@ under [The image](#the-image).
 
 ## The image
 
+The example's
+[`Dockerfile`](../examples/hono/Dockerfile):
+
+```dockerfile
+FROM oven/bun:1.4.4
+
+WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+COPY src ./src
+
+# State lives in the /data volume; a new volume inherits this owner.
+RUN mkdir /data && chown bun:bun /data
+USER bun
+
+# 0.0.0.0 inside the container; publish it on 127.0.0.1 only.
+ENV HOST=0.0.0.0 PORT=3000 STATE_DIRECTORY=/data
+EXPOSE 3000
+CMD ["bun", "run", "start"]
+```
+
 - **Listen on `0.0.0.0:$PORT` inside the container.** `127.0.0.1` there
   is the container's own loopback, which the published port cannot
-  reach. The `-p 127.0.0.1:...` part keeps it private to the host.
-- **State goes in the volume** (`/data` above, `$STATE_DIRECTORY`);
+  reach. The example reads `HOST` (default `127.0.0.1`, for the
+  `bun-app` unit), and the image sets it. The `-p 127.0.0.1:...` part
+  keeps it private to the host.
+- **State goes in the volume** (`/data`, `$STATE_DIRECTORY`);
   `--read-only` makes the rest of the container's filesystem
   read-only. Run as a non-root user (`USER bun` in the `oven/bun`
   images) that owns `/data` in the image, so the new volume inherits
   that owner.
 - **`--read-only`, `--cap-drop ALL` and `no-new-privileges`** stand in
   for the unit's sandbox, which does not apply to a container.
+- **`.dockerignore`** keeps a local `node_modules` and `data` out of the
+  build.
 
 ## Deploying
 
-Deploying means starting a new tag in place of the old one. The app is
-down for the few seconds between the two commands:
+Deploying means starting a new tag in place of the old one. Build it
+on the host as above, or pull it from your registry. The app is down
+for the few seconds between the last two commands:
 
 ```bash
-sudo docker pull my-app:1.0.1
+sudo docker build -t my-app:1.0.1 docs/examples/hono   # or docker pull
 sudo docker rm -f my-app
 sudo docker run -d --name my-app ... my-app:1.0.1   # same flags as above
 ```

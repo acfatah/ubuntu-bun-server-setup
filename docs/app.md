@@ -140,8 +140,9 @@ app.all("/api/*", (c) =>
   c.json({ message: MESSAGE, path: c.req.path, visits: countVisit.get()?.n })
 );
 
+// A container sets HOST=0.0.0.0; see the cookbook
 const server = Bun.serve({
-  hostname: "127.0.0.1",
+  hostname: process.env.HOST ?? "127.0.0.1",
   port: Number(process.env.PORT ?? 3000),
   fetch: app.fetch,
 });

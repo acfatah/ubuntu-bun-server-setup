@@ -541,7 +541,22 @@ Re-running must be safe and never clobber user edits:
   plain dir refuses with the `0-initial` hint, the hint's migration, two
   releases (`KEEP=2` prunes `0-initial`), `data` resolves to
   `/var/lib/bun-app`, a re-run keeps the link, `--rollback` serves the
-  previous release).
+  previous release),
+  `test_docker_app` (follows `docs/cookbook/docker.md`: `SKIP_BUN_APP=1
+  SKIP_UPGRADE=1 SKIP_CERTBOT=1` install, Ubuntu's `docker.io`, the
+  Dockerfile's `FROM oven/bun:` tag equals `BUN_PINNED_VERSION`, the
+  page's three `curl` lines from `file:///workspace/templates` and the
+  `sed`, `docs/examples/hono` built as `my-app:1` and run with the page's
+  flags: `/healthz`, `/api/x` JSON, counter, `X-Content-Type-Options`;
+  `127.0.0.1:3000` in `ss` and nothing on `0.0.0.0`/`[::]`, the
+  container's own IP refused; `ReadonlyRootfs`, user `bun`, `CapDrop`
+  `ALL`; a re-run keeps the site (`cmp`) and `--check` names no `bun-app`
+  or `healthz`; a `MESSAGE`-edited copy as `my-app:2` keeps the volume's
+  counter, then `my-app:1` serves the old message again).
+- Gotcha: Docker inside the e2e container needs `/var/lib/docker` and
+  `/var/lib/containerd` on a tmpfs (overlay mounts fail on the
+  container's overlay root; `docker.io` uses containerd's snapshotter),
+  and `test_docker_app` pulls `oven/bun` from Docker Hub (rate limits).
 - Gotcha: files a test wrote under `/tmp` vanished. Cause (confirmed):
   `docker exec` started the test while systemd still booted, and
   `systemd-tmpfiles-setup` emptied `/tmp` under it. `run.sh` now waits
@@ -705,8 +720,10 @@ Re-running must be safe and never clobber user edits:
 - `docs/app.md` ("Your app") owns everything about running your own app
   (contract, recipes, deploys, port, WebSockets, multiple apps); other
   pages link to it. Its examples live in `docs/examples/` (`deploy.sh`,
-  `hono/`) and `test_custom_app` runs them, so keep the page's quoted
-  code in step with those files.
+  `hono/`) and `test_custom_app` runs them (`test_docker_app` builds
+  `hono/` as an image too), so keep the page's quoted code in step with
+  those files. The example reads `HOST` (default `127.0.0.1`); only its
+  `Dockerfile` sets `0.0.0.0`.
 - `app.md` owns the generic contract; `docs/cookbook/` owns setups
   beyond it, one page per topic (`README.md` indexes them). Each page
   ships an example in `docs/examples/<name>/` and an e2e test, links
