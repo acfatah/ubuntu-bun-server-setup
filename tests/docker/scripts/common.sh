@@ -41,6 +41,29 @@ apt_update_retry() {
   return 1
 }
 
+# Lets root deploy over SSH to tester@localhost, as docs/examples/deploy.sh
+# does to a real host: installs openssh-server and rsync, gives the image's
+# tester user passwordless sudo and root's ed25519 key, and records the
+# host key in root's known_hosts (retried while sshd starts).
+setup_local_ssh() {
+  apt_update_retry
+  apt-get install -qqy --no-install-recommends openssh-server openssh-client rsync >/dev/null
+  mkdir -p /run/sshd
+  systemctl start ssh
+  echo 'tester ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/tester
+  chmod 440 /etc/sudoers.d/tester
+  mkdir -p /root/.ssh /home/tester/.ssh
+  [[ -f /root/.ssh/id_ed25519 ]] || ssh-keygen -q -t ed25519 -N '' -f /root/.ssh/id_ed25519
+  cp /root/.ssh/id_ed25519.pub /home/tester/.ssh/authorized_keys
+  chown -R tester:tester /home/tester/.ssh
+  chmod 700 /home/tester/.ssh
+  for _ in $(seq 10); do
+    ssh-keyscan -t ed25519 localhost >/root/.ssh/known_hosts 2>/dev/null && [[ -s /root/.ssh/known_hosts ]] && break
+    sleep 1
+  done
+  [[ -s /root/.ssh/known_hosts ]]
+}
+
 # Holds an fcntl write lock on $1 for $2 seconds, as another apt or dpkg
 # would; run it with &. Exits non-zero at once when the lock is taken.
 # apt uses fcntl locks, so flock(1) would not block it. struct flock is
