@@ -160,7 +160,7 @@ only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
 Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
 colours) and `set -Eeuo pipefail`.
 
-`main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `apt_update` (retried) → `require_snapd` → `upgrade_packages` (`apt-get upgrade`;
+`main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `require_web_root` → `apt_update` (retried) → `require_snapd` → `upgrade_packages` (`apt-get upgrade`;
 `full-upgrade` with `FULL_UPGRADE=1`, none with `SKIP_UPGRADE=1`) → base packages → UFW rules (no reset; see Idempotency) → snapd (apt) + Certbot snap → Bun (pinned release zip, verified →
 `/usr/local/bin/bun`; see Bun) → `bun-app` system user → sample app →
 `install_cloudflare` (updater, units, first fetch, `conf.d`, timer; first
@@ -229,6 +229,12 @@ summary.
   reason plus the two ways out (fix snapd, or `SKIP_CERTBOT=1`), `exit 1`.
   An `exit` trips no ERR trap, so no `install failed` line. No apt
   `certbot` fallback, by decision: Certbot's docs recommend the snap.
+- `require_web_root` runs right after `require_ubuntu`, before anything
+  is changed: an `NGINX_ROOT` that is a symlink to a missing path (the
+  Astro SSR link to `/srv/app/dist/client` before the first deploy)
+  prints RED `<root> is a symlink to a missing path (<target>).` plus
+  the fix and `exit 1`s, so no trap line. Without it the later `mkdir
+  -p "$NGINX_ROOT"` failed with a bare `File exists`.
 - `print_summary` runs `health_problems` (see Health checks): Certbot
   (unless `SKIP_CERTBOT=1`), `nginx`, and (unless skipped) `bun-app` and
   the `/healthz` probe; it lists problems and returns 1, which `main`
@@ -600,6 +606,8 @@ Re-running must be safe and never clobber user edits:
   `resolve_bun_version` (`stub_curl_serving` copies a body to `-o` or
   prints a `-w` URL), `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
   22.04, other distro, bad or missing `VERSION_ID`, missing file),
+  `require_web_root` (`NGINX_ROOT` in the tmpdir: absent, directory and
+  link to a directory pass; a dangling link exits 1 naming its target),
   `apt_update` retries (`apt-get` and `sleep` stubbed as functions;
   `APT_LOCKED=N` makes the first N calls fail with the lists-lock
   message: waits that spend no try, and a lock past `APT_LOCK_TIMEOUT`

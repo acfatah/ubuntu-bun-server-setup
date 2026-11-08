@@ -29,6 +29,17 @@ you see, its cause and the fix. Problems inside the systemd sandbox
   again. The lock goes with the process that held it, so a
   crashed run leaves none behind.
 
+**`/var/www/app/dist is a symlink to a missing path (/srv/app/dist/client).`**
+
+- **Cause:** the web root is a link you made whose target is not there
+  yet, for example the Astro SSR link to
+  `/srv/app/dist/client` before the app's first deploy. The run exits 1
+  before it changes anything.
+- **Fix:** deploy the app that provides the target, then run again; or
+  remove the link (`sudo rm /var/www/app/dist`) and let the installer
+  create a plain directory. With `SKIP_BUN_APP=1` the same check applies
+  to `/var/www/html`.
+
 **`Template <name> failed its checksum`** or **`Bun <zip> failed its
 checksum`**
 
