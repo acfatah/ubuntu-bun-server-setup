@@ -215,7 +215,8 @@ app, unit, service user or proxy site:
 
 The [Cookbook](cookbook/README.md) holds setups beyond these recipes,
 each with a tested example, such as [running your app in a
-container](cookbook/docker.md) behind the installer's Nginx.
+container](cookbook/docker.md) behind the installer's Nginx, or
+[deploying an Astro site](cookbook/astro.md), static or server-rendered.
 
 ## Build and dependencies
 
@@ -322,7 +323,9 @@ and `/srv/app` becomes a symlink to the current one:
   schema migration yourself.
 - **`KEEP=5`** (the default) old releases stay; older ones are removed,
   never the current one.
-- **Static files** in `/var/www/app/dist` are not part of a release.
+- **Static files** in `/var/www/app/dist` are not part of a release,
+  unless that dir links into `/srv/app`, as in the [Astro SSR
+  setup](cookbook/astro.md#release-dirs).
 
 **One-time migration.** The first `--release` onto a plain `/srv/app`
 refuses and prints these steps. Run them on the host, then deploy again:

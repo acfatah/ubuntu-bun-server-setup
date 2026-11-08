@@ -1,0 +1,23 @@
+---
+// Prerendered into dist/client/index.html, which Nginx serves through
+// the /var/www/app/dist link without reaching Bun.
+export const prerender = true;
+
+const MESSAGE = 'Hello from Astro';
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{MESSAGE}</title>
+  </head>
+  <body>
+    <h1>{MESSAGE}</h1>
+  </body>
+</html>
+
+<style>
+  h1 {
+    font-family: system-ui, sans-serif;
+  }
+</style>

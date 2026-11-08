@@ -334,7 +334,9 @@ ubuntu-bun-server-setup/
 │   ├── README.md              # Index of the pages
 │   ├── app.md                 # Your app: contract, recipes, deploys
 │   ├── architecture.md        # Install flow, units, Nginx files, re-runs
-│   ├── examples/              # Run by test_custom_app and test_docker_app
+│   ├── examples/              # Run by test_custom_app, test_docker_app, test_astro_app
+│   │   ├── astro/             # Astro SSR example for the cookbook
+│   │   ├── astro-static/      # Static Astro example for the cookbook
 │   │   ├── deploy.sh          # Deploy over SSH: in place or release dirs
 │   │   └── hono/              # Example app replacing the sample
 │   │       ├── .dockerignore
@@ -346,6 +348,7 @@ ubuntu-bun-server-setup/
 │   ├── compatibility.md       # Stability promise and support window
 │   ├── cookbook/              # Setups beyond the stock app, one page each
 │   │   ├── README.md          # Index of the recipes
+│   │   ├── astro.md           # Deploy an Astro site, static or SSR
 │   │   └── docker.md          # Run your app in a container
 │   ├── configuration.md       # Settings reference, environment toggles
 │   ├── installation.md        # Install options, channels, Bun, offline

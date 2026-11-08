@@ -737,6 +737,9 @@ Re-running must be safe and never clobber user edits:
   ships an example in `docs/examples/<name>/` and an e2e test, links
   `../app.md#what-the-host-expects` instead of restating the contract,
   sits outside the footer chain and ends with "Back to Your app".
+  `astro.md` has two examples, `examples/astro/` (SSR) and
+  `examples/astro-static/`, both run by `test_astro_app`; its quoted
+  `package.json`, `astro.config.mjs` and `healthz.ts` must match them.
 - What the later pages own: `architecture.md` (install flow table,
   units, Nginx file layout, files and re-runs; it links `app.md`
   "Request flow" instead of repeating it), `troubleshooting.md`

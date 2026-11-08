@@ -147,7 +147,8 @@ Operator documentation lives in [docs/](docs/README.md):
 - [Your app](docs/app.md): what the host expects from an app, extending
   or replacing the sample, frontend plus API, deploying with rollback.
 - [Cookbook](docs/cookbook/README.md): setups beyond the stock app, each
-  with a tested example, such as running your app in a container.
+  with a tested example: running your app in a container, deploying an
+  Astro site (static or SSR).
 - [Cloudflare](docs/cloudflare.md): real client IP, "Cloudflare only",
   the IP list updater, removing it.
 - [Security](docs/security.md): threat model, service user,

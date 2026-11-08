@@ -32,7 +32,7 @@ you see, its cause and the fix. Problems inside the systemd sandbox
 **`/var/www/app/dist is a symlink to a missing path (/srv/app/dist/client).`**
 
 - **Cause:** the web root is a link you made whose target is not there
-  yet, for example the Astro SSR link to
+  yet, for example the [Astro SSR](cookbook/astro.md) link to
   `/srv/app/dist/client` before the app's first deploy. The run exits 1
   before it changes anything.
 - **Fix:** deploy the app that provides the target, then run again; or
