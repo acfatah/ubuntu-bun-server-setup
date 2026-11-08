@@ -247,6 +247,8 @@ When adding new functionality, please:
 2. Put a `# Test: <label>` line right after the shebang; the runner prints it as the test name
 3. Source `common.sh` for `run_installer` and the `assert_*` helpers, and follow the existing test patterns
 
+A new [cookbook](docs/cookbook/README.md) page ships an example in `docs/examples/<name>/` and a Docker test that runs the page's steps against it. The page links `docs/app.md` "What the host expects" instead of restating the contract, sits outside the footer chain, and ends with a "Back to Your app" link.
+
 ## Code Style
 
 ### Bash Scripting
@@ -327,6 +329,9 @@ ubuntu-bun-server-setup/
 │   │       └── src/index.ts
 │   ├── cloudflare.md          # Real client IP, updater
 │   ├── compatibility.md       # Stability promise and support window
+│   ├── cookbook/              # Setups beyond the stock app, one page each
+│   │   ├── README.md          # Index of the recipes
+│   │   └── docker.md          # Run your app in a container
 │   ├── configuration.md       # Settings reference, environment toggles
 │   ├── installation.md        # Install options, channels, Bun, offline
 │   ├── operations.md          # Health check, re-runs, TLS, backups

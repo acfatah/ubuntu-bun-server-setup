@@ -77,7 +77,7 @@ fallback. snapd is installed through apt when missing. With
 
 The installer sets up one host for one Bun app. It does not cover:
 
-- **Several apps per host, containers, or config management.** Ansible, Terraform and similar tools can run the installer, but it ships no integration for them.
+- **Several apps per host, containers, or config management.** Ansible, Terraform and similar tools can run the installer, but it ships no integration for them. To run your own app in a container behind its Nginx, see [Run your app in a container](docs/cookbook/docker.md).
 - **Host hardening.** SSH hardening, fail2ban and CIS benchmarks belong to your host's baseline image.
 - **Logging and metrics agents.** The data lives in the systemd journal (`journalctl -u bun-app`), the Nginx logs under `/var/log/nginx/`, and the app state in `/var/lib/bun-app`; pick your own agent to ship it.
 
@@ -146,6 +146,8 @@ Operator documentation lives in [docs/](docs/README.md):
   Bun, restarts, backups.
 - [Your app](docs/app.md): what the host expects from an app, extending
   or replacing the sample, frontend plus API, deploying with rollback.
+- [Cookbook](docs/cookbook/README.md): setups beyond the stock app, each
+  with a tested example, such as running your app in a container.
 - [Cloudflare](docs/cloudflare.md): real client IP, "Cloudflare only",
   the IP list updater, removing it.
 - [Security](docs/security.md): threat model, service user,

@@ -707,6 +707,11 @@ Re-running must be safe and never clobber user edits:
   pages link to it. Its examples live in `docs/examples/` (`deploy.sh`,
   `hono/`) and `test_custom_app` runs them, so keep the page's quoted
   code in step with those files.
+- `app.md` owns the generic contract; `docs/cookbook/` owns setups
+  beyond it, one page per topic (`README.md` indexes them). Each page
+  ships an example in `docs/examples/<name>/` and an e2e test, links
+  `../app.md#what-the-host-expects` instead of restating the contract,
+  sits outside the footer chain and ends with "Back to Your app".
 - What the later pages own: `architecture.md` (install flow table,
   units, Nginx file layout, files and re-runs; it links `app.md`
   "Request flow" instead of repeating it), `troubleshooting.md`

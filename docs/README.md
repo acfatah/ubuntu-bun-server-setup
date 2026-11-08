@@ -15,6 +15,8 @@ first install command are in the [README](../README.md).
   Bun, restarts, backups.
 - [Your app](app.md): what the host expects from an app, extending
   or replacing the sample, frontend plus API, deploying with rollback.
+- [Cookbook](cookbook/README.md): setups beyond the stock app, each
+  with a tested example, such as running your app in a container.
 - [Cloudflare](cloudflare.md): real client IP, "Cloudflare only", the IP
   list updater, removing it.
 - [Security](security.md): threat model, service user,

@@ -210,6 +210,12 @@ app, unit, service user or proxy site:
   `127.0.0.1:3000`. A later run without the toggle installs the managed
   site, snippet and sample, but never over an app already in `/srv/app`.
 
+### More setups
+
+The [Cookbook](cookbook/README.md) holds setups beyond these recipes,
+each with a tested example, such as [running your app in a
+container](cookbook/docker.md) behind the installer's Nginx.
+
 ## Build and dependencies
 
 Pick where `bun install` (and any build) runs:
