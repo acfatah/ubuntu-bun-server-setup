@@ -101,7 +101,8 @@ pinned), but Certbot is installed as a snap. Either:`**
 
 - **Fix, dropping the limit:** allow the port instead. Tradeoff: no
   throttle on password guessing, so allow key logins only first
-  (`PasswordAuthentication no` in `sshd_config`), or add fail2ban.
+  (`PasswordAuthentication no` in `sshd_config`), or add fail2ban (see
+  Security, [SSH brute force](security.md#ssh-brute-force)).
 
   ```bash
   sudo ufw allow 22/tcp    # replaces the LIMIT rule for that port

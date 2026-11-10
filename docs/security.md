@@ -1,9 +1,10 @@
 # Security
 
-What the installer trusts and what the installed host exposes, then how
-the installed services are confined: the service user, the environment
-file, the filesystem layout, the systemd sandbox and limits of both
-units, and how to customise and troubleshoot them.
+What the installer trusts and what the installed host exposes, how to
+add SSH brute-force bans, then how the installed services are confined:
+the service user, the environment file, the filesystem layout, the
+systemd sandbox and limits of both units, and how to customise and
+troubleshoot them.
 
 To report a vulnerability, see [SECURITY.md](../SECURITY.md); please do not
 open a public issue.
@@ -50,6 +51,66 @@ open a public issue.
   that a request comes from a Cloudflare edge, not from your zone. See
   Cloudflare, [Other Cloudflare
   customers](cloudflare.md#other-cloudflare-customers).
+
+## SSH brute force
+
+The installer ships no fail2ban: host hardening is out of scope (see
+README, [Out of scope](../README.md#out-of-scope)). What it does is
+`ufw limit` on every SSH port, which blocks a source address that opens
+6 or more connections in 30 seconds. With key-only logins that is
+enough for most hosts:
+
+```bash
+# /etc/ssh/sshd_config.d/50-keys-only.conf
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+```
+
+Test a key login in a second session before you close the first, then
+`sudo systemctl reload ssh`.
+
+To also ban addresses that keep failing, add fail2ban with the SSH jail
+only:
+
+```bash
+sudo apt-get install -y fail2ban python3-systemd
+```
+
+```ini
+# /etc/fail2ban/jail.d/sshd.local
+[sshd]
+enabled  = true
+backend  = systemd
+port     = ssh
+maxretry = 5
+findtime = 10m
+bantime  = 1h
+# Never ban these: your office, VPN or CI runners
+ignoreip = 127.0.0.1/8 ::1 203.0.113.10
+```
+
+```bash
+sudo systemctl restart fail2ban
+sudo fail2ban-client status sshd                  # failed and banned counts
+sudo fail2ban-client set sshd unbanip 203.0.113.7  # lift a ban
+```
+
+- **Set `port` to your SSH port.** `ssh` means 22. On another port
+  (`2222`), a ban blocks port 22 and the attacker keeps going. Use the
+  ports `sudo ufw status` shows as `LIMIT`.
+- **`backend = systemd` reads the journal.** It needs `python3-systemd`
+  and works whether or not `/var/log/auth.log` exists.
+- **Check it counts failures.** Fail one login from another address,
+  then `sudo fail2ban-client status sshd` should show `Currently
+  failed: 1`. A `0` means the jail does not see sshd's log lines.
+- **The installer leaves it alone.** A re-run adds UFW rules again and
+  removes none, so fail2ban's own firewall rules survive it.
+- **Do not add Nginx jails behind Cloudflare.** Proxied requests reach
+  Nginx from a Cloudflare edge, so a ban blocks that edge for every
+  visitor using it. Block abusive visitors in Cloudflare's WAF instead.
+- **Shared addresses lock out everyone behind them.** CI runners and
+  office NAT can collect failures from several users; list them in
+  `ignoreip`.
 
 ## Service user
 
