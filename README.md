@@ -78,7 +78,7 @@ fallback. snapd is installed through apt when missing. With
 The installer sets up one host for one Bun app. It does not cover:
 
 - **Several apps per host, containers, or config management.** Ansible, Terraform and similar tools can run the installer, but it ships no integration for them.
-- **Host hardening.** SSH hardening, fail2ban and CIS benchmarks belong to your host's baseline image. [docs/security.md](docs/security.md#ssh-brute-force) shows a minimal fail2ban setup.
+- **Host hardening.** SSH hardening, fail2ban and CIS benchmarks belong to your host's baseline image. [docs/security.md](docs/security.md#ssh-brute-force) shows a minimal fail2ban setup, and [CIS benchmarks](docs/security.md#cis-benchmarks) lists what a CIS profile conflicts with.
 - **Logging and metrics agents.** The data lives in the systemd journal (`journalctl -u bun-app`), the Nginx logs under `/var/log/nginx/`, and the app state in `/var/lib/bun-app`; pick your own agent to ship it.
 
 What the installer does promise, and for how long: [docs/compatibility.md](docs/compatibility.md).

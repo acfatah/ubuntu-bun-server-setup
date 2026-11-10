@@ -1,10 +1,10 @@
 # Security
 
 What the installer trusts and what the installed host exposes, how to
-add SSH brute-force bans, then how the installed services are confined:
-the service user, the environment file, the filesystem layout, the
-systemd sandbox and limits of both units, and how to customise and
-troubleshoot them.
+add SSH brute-force bans, how CIS benchmarks fit in, then how the
+installed services are confined: the service user, the environment file,
+the filesystem layout, the systemd sandbox and limits of both units, and
+how to customise and troubleshoot them.
 
 To report a vulnerability, see [SECURITY.md](../SECURITY.md); please do not
 open a public issue.
@@ -111,6 +111,35 @@ sudo fail2ban-client set sshd unbanip 203.0.113.7  # lift a ban
 - **Shared addresses lock out everyone behind them.** CI runners and
   office NAT can collect failures from several users; list them in
   `ignoreip`.
+
+## CIS benchmarks
+
+The [CIS benchmarks](https://www.cisecurity.org/cis-benchmarks) are
+hardening checklists for Ubuntu, Nginx and other products, published by
+the Center for Internet Security. The installer does not apply one, and a
+host it sets up is not CIS-compliant. Hardening the base system belongs
+to your host's baseline image (see [Out of scope](../README.md#out-of-scope)).
+
+Some benchmark checks already pass: UFW is enabled with incoming traffic
+denied and the SSH port(s) rate-limited, and both units run sandboxed.
+To audit or apply a full profile, use Ubuntu Pro's
+[Ubuntu Security Guide](https://ubuntu.com/security/certifications/docs/usg)
+(`usg audit cis_level1_server`) or start from a CIS-hardened image.
+
+Test a profile on a spare host before production. These items conflict
+with what the installer sets up:
+
+- **A deny-outgoing UFW policy** blocks apt, Certbot renewals, Bun
+  downloads and the daily Cloudflare IP fetch. The installer sets
+  `allow outgoing` only on a host whose UFW was inactive, so allow
+  outbound DNS, 80 and 443 if your profile denies the rest.
+- **Removing snapd** breaks Certbot, which is installed only as a snap.
+  Use `SKIP_CERTBOT=1` and get certificates another way.
+- **`MemoryDenyWriteExecute=yes` on `bun-app`** crashes Bun at start (see
+  [Sandboxing](#sandboxing)). Leave it out of any drop-in a hardening
+  tool adds.
+- **A `noexec` `/tmp`** is fine: the installer never runs anything from
+  it.
 
 ## Service user
 
