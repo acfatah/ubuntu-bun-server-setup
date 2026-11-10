@@ -35,7 +35,7 @@ Thank you for your interest in contributing to the Ubuntu Bun Server Setup proje
 
 ## Getting Started
 
-This project is a bash script that bootstraps an opinionated, production-ready Bun application environment for Ubuntu. It installs Bun, Nginx, UFW, Certbot, and sets up a sample Bun app with systemd service and Nginx reverse proxy configuration.
+This project is an opinionated provisioning script, written in Bash, that turns a fresh Ubuntu server into a production-ready Bun host. It installs Bun, Nginx, UFW, Certbot, and sets up a sample Bun app with systemd service and Nginx reverse proxy configuration.
 
 Before contributing, please familiarize yourself with:
 - Bash scripting

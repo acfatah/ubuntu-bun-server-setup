@@ -26,7 +26,7 @@
 
 ## Introduction
 
-Bootstrap an opinionated, production-ready Bun application environment for Ubuntu.
+An opinionated provisioning script that turns a fresh Ubuntu server into a production-ready Bun host.
 
 - Installs Bun, Nginx, UFW, Certbot (via snap; `SKIP_CERTBOT=1` to bring your own ACME client), and sets up a Bun app under `/srv/app`.
 - Creates a systemd service `bun-app` for running the Bun app as an
