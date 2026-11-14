@@ -193,6 +193,17 @@ The `.sh` suffix is optional; both `test_default` and `test_default.sh` work. Se
   old one rolls back. Also fails when the Dockerfile's `oven/bun` tag
   differs from `BUN_PINNED_VERSION`. Needs Docker Hub and the npm
   registry.
+- `test_astro_app.sh` — runs what
+  [docs/cookbook/astro.md](docs/cookbook/astro.md) shows: builds
+  `docs/examples/astro-static` and copies it into the web root, checks
+  that a re-run refuses the page's `dist/client` link before the first
+  SSR deploy, then builds `docs/examples/astro` and deploys it with
+  `deploy.sh` behind that link. Checks `/healthz`, `/api/x`, the
+  prerendered page and one `Cache-Control` on its `/assets/` CSS,
+  loopback-only Bun, a session that survives a restart in the state dir,
+  that a re-run keeps the app and the link, and that `--release` and
+  `--rollback` switch the client files with the code. Needs the npm
+  registry.
 - `test_idempotent.sh` — rejects `SKIP_BUN_APP=yes`, installs with
   `SKIP_BUN_APP=0`, edits installed files, checks a run is refused and
   changes nothing while the lock is held, re-runs, and checks the edits
@@ -334,7 +345,9 @@ ubuntu-bun-server-setup/
 │   ├── README.md              # Index of the pages
 │   ├── app.md                 # Your app: contract, recipes, deploys
 │   ├── architecture.md        # Install flow, units, Nginx files, re-runs
-│   ├── examples/              # Run by test_custom_app and test_docker_app
+│   ├── examples/              # Run by test_custom_app, test_docker_app, test_astro_app
+│   │   ├── astro/             # Astro SSR example for the cookbook
+│   │   ├── astro-static/      # Static Astro example for the cookbook
 │   │   ├── deploy.sh          # Deploy over SSH: in place or release dirs
 │   │   └── hono/              # Example app replacing the sample
 │   │       ├── .dockerignore
@@ -346,6 +359,7 @@ ubuntu-bun-server-setup/
 │   ├── compatibility.md       # Stability promise and support window
 │   ├── cookbook/              # Setups beyond the stock app, one page each
 │   │   ├── README.md          # Index of the recipes
+│   │   ├── astro.md           # Deploy an Astro site, static or SSR
 │   │   └── docker.md          # Run your app in a container
 │   ├── configuration.md       # Settings reference, environment toggles
 │   ├── installation.md        # Install options, channels, Bun, offline
@@ -392,10 +406,12 @@ ubuntu-bun-server-setup/
         ├── run.sh             # Test runner script
         └── scripts/           # Individual test scripts
             ├── common.sh      # Common test utilities
+            ├── test_astro_app.sh
             ├── test_bun_pin.sh
             ├── test_cloudflare.sh
             ├── test_custom_app.sh
             ├── test_default.sh
+            ├── test_docker_app.sh
             ├── test_fail_loudly.sh
             ├── test_host_safety.sh
             ├── test_idempotent.sh

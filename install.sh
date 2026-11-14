@@ -424,6 +424,18 @@ require_ubuntu() {
   fi
 }
 
+# Refuses, before anything is changed, a web root ($NGINX_ROOT) that is a
+# symlink to a missing path, such as the Astro SSR link to
+# /srv/app/dist/client before the first deploy: the later mkdir -p would
+# stop with a bare "File exists". A missing root, a directory and a link
+# to an existing directory all pass.
+require_web_root() {
+  [[ -L $NGINX_ROOT && ! -e $NGINX_ROOT ]] || return 0
+  echo -e "${RED}${NGINX_ROOT} is a symlink to a missing path ($(readlink "$NGINX_ROOT")).${NC}" >&2
+  echo "  Deploy the app that provides it (then re-run), or remove the link: sudo rm ${NGINX_ROOT}" >&2
+  exit 1
+}
+
 # Refreshes APT metadata, retrying the whole update: Acquire::Retries
 # covers failed downloads, not an InRelease that downloads but then
 # fails verification (a mirror caught mid-sync).
@@ -1223,6 +1235,7 @@ main() {
     echo -e "${YELLOW}TEMPLATE_REF=${TEMPLATE_REF} differs from ${INSTALLER_REF}; templates are not verified.${NC}"
   fi
   require_ubuntu
+  require_web_root
   export DEBIAN_FRONTEND=noninteractive
   apt_update
   # After the update (fresh indexes), before anything is changed

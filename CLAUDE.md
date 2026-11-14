@@ -160,7 +160,7 @@ only when `${BASH_SOURCE[0]:-$0} == $0`: true when executed or piped (no
 Sourcing still runs the top-level assignments (`INSTANCE_ID` read,
 colours) and `set -Eeuo pipefail`.
 
-`main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `apt_update` (retried) → `require_snapd` → `upgrade_packages` (`apt-get upgrade`;
+`main`: ERR trap → Ubuntu 22.04+ check (`OS_RELEASE`) → `require_web_root` → `apt_update` (retried) → `require_snapd` → `upgrade_packages` (`apt-get upgrade`;
 `full-upgrade` with `FULL_UPGRADE=1`, none with `SKIP_UPGRADE=1`) → base packages → UFW rules (no reset; see Idempotency) → snapd (apt) + Certbot snap → Bun (pinned release zip, verified →
 `/usr/local/bin/bun`; see Bun) → `bun-app` system user → sample app →
 `install_cloudflare` (updater, units, first fetch, `conf.d`, timer; first
@@ -229,6 +229,12 @@ summary.
   reason plus the two ways out (fix snapd, or `SKIP_CERTBOT=1`), `exit 1`.
   An `exit` trips no ERR trap, so no `install failed` line. No apt
   `certbot` fallback, by decision: Certbot's docs recommend the snap.
+- `require_web_root` runs right after `require_ubuntu`, before anything
+  is changed: an `NGINX_ROOT` that is a symlink to a missing path (the
+  Astro SSR link to `/srv/app/dist/client` before the first deploy)
+  prints RED `<root> is a symlink to a missing path (<target>).` plus
+  the fix and `exit 1`s, so no trap line. Without it the later `mkdir
+  -p "$NGINX_ROOT"` failed with a bare `File exists`.
 - `print_summary` runs `health_problems` (see Health checks): Certbot
   (unless `SKIP_CERTBOT=1`), `nginx`, and (unless skipped) `bun-app` and
   the `/healthz` probe; it lists problems and returns 1, which `main`
@@ -552,11 +558,31 @@ Re-running must be safe and never clobber user edits:
   container's own IP refused; `ReadonlyRootfs`, user `bun`, `CapDrop`
   `ALL`; a re-run keeps the site (`cmp`) and `--check` names no `bun-app`
   or `healthz`; a `MESSAGE`-edited copy as `my-app:2` keeps the volume's
-  counter, then `my-app:1` serves the old message again).
+  counter, then `my-app:1` serves the old message again),
+  `test_astro_app` (follows `docs/cookbook/astro.md`: every installer
+  run uses `SKIP_UPGRADE=1 SKIP_CERTBOT=1`, then `setup_local_ssh`;
+  examples copied without `node_modules`, `dist` or `.astro`, built in
+  the container with `ASTRO_TELEMETRY_DISABLED=1`; `astro-static`
+  through the page's `rsync` and modes: marker on `/`, one
+  `Cache-Control` on its `/assets/` CSS; the page's link made before any
+  SSR deploy: a re-run exits 1 with the dangling-link message, no trap
+  or `Updating package lists` line, link unchanged; `HOST=127.0.0.1`
+  appended to the env file, `astro` deployed with `deploy.sh`:
+  `/healthz` `ok` with `no-store`, `/api/x` path, the prerendered page
+  through the link (also with `bun-app` stopped), `127.0.0.1:3000`
+  only, a cookie-jar session 1 → 2 → restart → 3 with files in
+  `/var/lib/bun-app/sessions` and no `ENOENT` in the journal; a re-run
+  keeps `package.json` (`cmp`), no `server.ts`, the link, `--check`
+  passes; the `0-initial` migration, a `MESSAGE`-edited build with
+  `--release` shows the new page, `--rollback` the old one).
 - Gotcha: Docker inside the e2e container needs `/var/lib/docker` and
   `/var/lib/containerd` on a tmpfs (overlay mounts fail on the
   container's overlay root; `docker.io` uses containerd's snapshotter),
   and `test_docker_app` pulls `oven/bun` from Docker Hub (rate limits).
+- Gotcha: `/workspace` is the live checkout, so a local `bun install`
+  or build in `docs/examples/astro*` leaves `node_modules`, `dist` and
+  `.astro` there (git-ignored). `test_astro_app` removes them from its
+  copies; a new test copying an example must do the same.
 - Gotcha: files a test wrote under `/tmp` vanished. Cause (confirmed):
   `docker exec` started the test while systemd still booted, and
   `systemd-tmpfiles-setup` emptied `/tmp` under it. `run.sh` now waits
@@ -600,6 +626,8 @@ Re-running must be safe and never clobber user edits:
   `resolve_bun_version` (`stub_curl_serving` copies a body to `-o` or
   prints a `-w` URL), `NGINX_ROOT`, `require_ubuntu` (fake os-release via `OS_RELEASE`: below
   22.04, other distro, bad or missing `VERSION_ID`, missing file),
+  `require_web_root` (`NGINX_ROOT` in the tmpdir: absent, directory and
+  link to a directory pass; a dangling link exits 1 naming its target),
   `apt_update` retries (`apt-get` and `sleep` stubbed as functions;
   `APT_LOCKED=N` makes the first N calls fail with the lists-lock
   message: waits that spend no try, and a lock past `APT_LOCK_TIMEOUT`
@@ -729,6 +757,9 @@ Re-running must be safe and never clobber user edits:
   ships an example in `docs/examples/<name>/` and an e2e test, links
   `../app.md#what-the-host-expects` instead of restating the contract,
   sits outside the footer chain and ends with "Back to Your app".
+  `astro.md` has two examples, `examples/astro/` (SSR) and
+  `examples/astro-static/`, both run by `test_astro_app`; its quoted
+  `package.json`, `astro.config.mjs` and `healthz.ts` must match them.
 - What the later pages own: `architecture.md` (install flow table,
   units, Nginx file layout, files and re-runs; it links `app.md`
   "Request flow" instead of repeating it), `troubleshooting.md`

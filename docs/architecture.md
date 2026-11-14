@@ -14,7 +14,7 @@ Everything after that is logged to `/var/log/bun-installer.log`.
 
 | # | Step | Writes or changes | Skipped by |
 | --- | --- | --- | --- |
-| 1 | Check the OS | nothing; refuses below Ubuntu 22.04 | |
+| 1 | Check the OS and web root | nothing; refuses below Ubuntu 22.04, or a web root that is a dangling symlink | |
 | 2 | Update package lists | apt indexes; waits for an apt lock, retries | |
 | 3 | Check snapd | nothing; refuses a masked or uninstallable snapd | `SKIP_CERTBOT=1` |
 | 4 | Upgrade packages | `apt-get upgrade` (`full-upgrade` with `FULL_UPGRADE=1`) | `SKIP_UPGRADE=1` |

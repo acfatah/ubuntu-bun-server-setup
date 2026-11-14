@@ -547,6 +547,35 @@ fake_os_release() {
   [[ $output == *"not found"* ]]
 }
 
+@test "require_web_root: absent, a directory and a link to a directory pass" {
+  NGINX_ROOT=$BATS_TEST_TMPDIR/absent
+  run require_web_root
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+
+  NGINX_ROOT=$BATS_TEST_TMPDIR/dir
+  mkdir "$NGINX_ROOT"
+  run require_web_root
+  [ "$status" -eq 0 ]
+
+  mkdir "$BATS_TEST_TMPDIR/client"
+  ln -s "$BATS_TEST_TMPDIR/client" "$BATS_TEST_TMPDIR/link"
+  NGINX_ROOT=$BATS_TEST_TMPDIR/link
+  run require_web_root
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "require_web_root: a dangling link is refused with its target and the fix" {
+  ln -s "$BATS_TEST_TMPDIR/missing/client" "$BATS_TEST_TMPDIR/dist"
+  NGINX_ROOT=$BATS_TEST_TMPDIR/dist
+  run require_web_root
+  [ "$status" -eq 1 ]
+  [[ $output == *"$NGINX_ROOT is a symlink to a missing path ($BATS_TEST_TMPDIR/missing/client)."* ]]
+  [[ $output == *"remove the link: sudo rm $NGINX_ROOT"* ]]
+  [ -L "$NGINX_ROOT" ]
+}
+
 # Stubs apt-get and sleep for apt_update: apt-get fails its first $1 calls,
 # and both log their arguments, one call per line. With APT_LOCKED=N
 # (default 0), the first N calls fail with apt's lists-lock message

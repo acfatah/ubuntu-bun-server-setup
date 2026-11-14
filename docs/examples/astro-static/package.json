@@ -1,0 +1,13 @@
+{
+  "name": "astro-static-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build"
+  },
+  "dependencies": {
+    "astro": "7.4.5"
+  }
+}

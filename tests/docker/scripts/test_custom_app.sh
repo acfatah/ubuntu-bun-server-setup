@@ -75,22 +75,7 @@ assert_equals "SPA path falls back to Bun" "Hello from Hono: no route for /some/
 
 # deploy.sh over SSH to localhost, as a sudo user
 echo -e "${YELLOW}[test]${NC} deploy.sh over local SSH"
-apt_update_retry
-apt-get install -qqy --no-install-recommends openssh-server openssh-client rsync >/dev/null
-mkdir -p /run/sshd
-systemctl start ssh
-echo 'tester ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/tester
-chmod 440 /etc/sudoers.d/tester
-mkdir -p /root/.ssh /home/tester/.ssh
-[[ -f /root/.ssh/id_ed25519 ]] || ssh-keygen -q -t ed25519 -N '' -f /root/.ssh/id_ed25519
-cp /root/.ssh/id_ed25519.pub /home/tester/.ssh/authorized_keys
-chown -R tester:tester /home/tester/.ssh
-chmod 700 /home/tester/.ssh
-for _ in $(seq 10); do
-  ssh-keyscan -t ed25519 localhost >/root/.ssh/known_hosts 2>/dev/null && [[ -s /root/.ssh/known_hosts ]] && break
-  sleep 1
-done
-[[ -s /root/.ssh/known_hosts ]]
+setup_local_ssh
 target=tester@localhost
 
 before=$(visits)
